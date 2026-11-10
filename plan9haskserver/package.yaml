@@ -21,6 +21,9 @@ description:         Please see the README on GitHub at <https://github.com/stev
 
 dependencies:
 - base >= 4.7 && < 5
+- network
+- bytestring
+- dhall
 
 ghc-options:
 - -Wall
@@ -33,11 +36,18 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 
+common-extensions: &common_extensions
+  default-extensions: ImportQualifiedPost
+
 library:
+  <<: *common_extensions
   source-dirs: src
+  dependencies:
+    - plan9haskshared
 
 executables:
   plan9haskserver-exe:
+    <<: *common_extensions
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -49,6 +59,7 @@ executables:
 
 tests:
   plan9haskserver-test:
+    <<: *common_extensions
     main:                Spec.hs
     source-dirs:         test
     ghc-options:

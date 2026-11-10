@@ -21,6 +21,9 @@ description:         Please see the README on GitHub at <https://github.com/stev
 
 dependencies:
 - base >= 4.7 && < 5
+- network
+- bytestring
+- dhall
 
 ghc-options:
 - -Wall
@@ -35,6 +38,8 @@ ghc-options:
 
 library:
   source-dirs: src
+  dependencies:
+    - plan9haskshared
 
 executables:
   plan9haskclient-exe:

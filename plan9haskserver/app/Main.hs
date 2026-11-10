@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Lib
+import Network.Plan9Hask.Server qualified
 
 main :: IO ()
-main = someFunc
+main = Network.Plan9Hask.Server.serve9p
