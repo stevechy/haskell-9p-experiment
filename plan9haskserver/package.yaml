@@ -43,6 +43,7 @@ library:
   source-dirs: src
   dependencies:
     - plan9haskshared
+    - attoparsec
 
 executables:
   plan9haskserver-exe:

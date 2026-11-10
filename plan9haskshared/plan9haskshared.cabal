@@ -26,16 +26,22 @@ source-repository head
 library
   exposed-modules:
       Lib
+      Network.Plan9Hask.Msg
+      Network.Plan9Hask.Parser
   other-modules:
       Paths_plan9haskshared
   autogen-modules:
       Paths_plan9haskshared
   hs-source-dirs:
       src
+  default-extensions:
+      ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      attoparsec
+    , base >=4.7 && <5
     , bytestring
+    , cereal
     , network
   default-language: Haskell2010
 
@@ -47,10 +53,14 @@ executable plan9haskshared-exe
       Paths_plan9haskshared
   hs-source-dirs:
       app
+  default-extensions:
+      ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      attoparsec
+    , base >=4.7 && <5
     , bytestring
+    , cereal
     , network
     , plan9haskshared
   default-language: Haskell2010
@@ -64,10 +74,14 @@ test-suite plan9haskshared-test
       Paths_plan9haskshared
   hs-source-dirs:
       test
+  default-extensions:
+      ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      attoparsec
+    , base >=4.7 && <5
     , bytestring
+    , cereal
     , network
     , plan9haskshared
   default-language: Haskell2010
