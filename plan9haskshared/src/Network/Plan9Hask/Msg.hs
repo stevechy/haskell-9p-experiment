@@ -4,64 +4,64 @@ import Data.Word qualified
 
 newtype MessageType = MessageType Data.Word.Word8
 
-tversion = MessageType 100
+tVersion = MessageType 100
 
-rversion = MessageType 101
+rVersion = MessageType 101
 
-tauth = MessageType 102
+tAuth = MessageType 102
 
-rauth = MessageType 103
+rAuth = MessageType 103
 
-tattach = MessageType 104
+tAttach = MessageType 104
 
-rattach = MessageType 105
+rAttach = MessageType 105
 
-terror = MessageType 106
+tError = MessageType 106
 
-rerror = MessageType 107
+rError = MessageType 107
 
-tflush = MessageType 108
+tFlush = MessageType 108
 
-rflush = MessageType 109
+rFlush = MessageType 109
 
-twalk = MessageType 110
+tWalk = MessageType 110
 
-rwalk = MessageType 111
+rWalk = MessageType 111
 
-topen = MessageType 112
+tOpen = MessageType 112
 
-ropen = MessageType 113
+rOpen = MessageType 113
 
-tcreate = MessageType 114
+tCreate = MessageType 114
 
-rcreate = MessageType 115
+rCreate = MessageType 115
 
-tread = MessageType 116
+tRead = MessageType 116
 
-rread = MessageType 117
+rRead = MessageType 117
 
-twrite = MessageType 118
+tWrite = MessageType 118
 
-rwrite = MessageType 119
+rWrite = MessageType 119
 
-tclunk = MessageType 120
+tClunk = MessageType 120
 
-rclunk = MessageType 121
+rClunk = MessageType 121
 
-tremove = MessageType 122
+tRemove = MessageType 122
 
-rremove = MessageType 123
+rRemove = MessageType 123
 
-tstat = MessageType 124
+tStat = MessageType 124
 
-rstat = MessageType 125
+rStat = MessageType 125
 
-twstat = MessageType 126
+tWstat = MessageType 126
 
-rwstat = MessageType 127
+rWstat = MessageType 127
 
-tmax = MessageType 128
+tMax = MessageType 128
 
-topenfd = MessageType 98
+tOpenfd = MessageType 98
 
-ropenfd = MessageType 99
+rOpenfd = MessageType 99

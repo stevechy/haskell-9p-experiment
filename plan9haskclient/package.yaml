@@ -26,6 +26,7 @@ dependencies:
 - network
 - bytestring
 - dhall
+- text
 
 ghc-options:
 - -Wall

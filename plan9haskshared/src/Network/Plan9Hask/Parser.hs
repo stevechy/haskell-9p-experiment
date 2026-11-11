@@ -2,18 +2,20 @@ module Network.Plan9Hask.Parser where
 
 import Data.ByteString qualified
 import Data.Attoparsec.ByteString qualified
-import Data.Attoparsec qualified
 import Data.Serialize.Get qualified
 import Data.Word qualified
 
-msgParser :: Data.Attoparsec.ByteString.Parser Data.Word.Word32
-msgParser = do
+msgParser :: Data.Word.Word32 ->  Data.Attoparsec.ByteString.Parser (Int, Data.ByteString.ByteString)
+msgParser maxSize = do
     sizeBytes <- Data.Attoparsec.ByteString.take 4
     let parsedSize = Data.Serialize.Get.runGet Data.Serialize.Get.getWord32le sizeBytes
     size <- case parsedSize of
-        (Right sizeWord) -> pure sizeWord
+        (Right sizeWord) | sizeWord < 4+1+2 -> fail "size cannot fit the message type and tag"
+        (Right sizeWord) | sizeWord > maxSize -> fail "size is larger than the maximum"
+        (Right sizeWord) -> pure $ (fromIntegral sizeWord :: Int)
         (Left err) -> fail err
-    return size
+    msgBytes <- Data.Attoparsec.ByteString.take size
+    return (size, msgBytes)
 
-runMsgParser :: Data.ByteString.ByteString -> Data.Attoparsec.Result Data.Word.Word32
-runMsgParser bytes = Data.Attoparsec.ByteString.parse msgParser bytes
+runMsgParser :: Data.ByteString.ByteString -> Data.Attoparsec.ByteString.Result (Int, Data.ByteString.ByteString)
+runMsgParser bytes = Data.Attoparsec.ByteString.parse (msgParser 8192)  bytes
