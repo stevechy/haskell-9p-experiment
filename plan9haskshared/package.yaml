@@ -27,6 +27,7 @@ dependencies:
 - bytestring
 - attoparsec
 - cereal
+- text
 
 ghc-options:
 - -Wall

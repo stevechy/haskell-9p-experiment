@@ -43,6 +43,7 @@ library
     , bytestring
     , cereal
     , network
+    , text
   default-language: Haskell2010
 
 executable plan9haskshared-exe
@@ -63,6 +64,7 @@ executable plan9haskshared-exe
     , cereal
     , network
     , plan9haskshared
+    , text
   default-language: Haskell2010
 
 test-suite plan9haskshared-test
@@ -84,4 +86,5 @@ test-suite plan9haskshared-test
     , cereal
     , network
     , plan9haskshared
+    , text
   default-language: Haskell2010

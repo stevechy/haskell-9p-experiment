@@ -1,8 +1,11 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 module Network.Plan9Hask.Msg where
 
 import Data.Word qualified
+import Data.Text qualified
 
-newtype MessageType = MessageType Data.Word.Word8
+newtype MessageType = MessageType{ getMsgType :: Data.Word.Word8 }
 
 tVersion = MessageType 100
 
@@ -65,3 +68,6 @@ tMax = MessageType 128
 tOpenfd = MessageType 98
 
 rOpenfd = MessageType 99
+
+
+data Value = Tversion { tag:: Data.Word.Word16, mSize :: Data.Word.Word32, version:: Data.Text.Text } deriving Show
