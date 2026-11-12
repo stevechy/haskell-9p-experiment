@@ -74,6 +74,7 @@ newtype Tag = Tag {getTag :: Data.Word.Word16} deriving Show
 newtype Fid = Fid {getFid :: Data.Word.Word32} deriving Show
 newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
 newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
+newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
 newtype VarArgByteLength = VarArgByteLength { getVarArgByteLength :: Data.Text.Text } deriving Show
 newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
 newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show

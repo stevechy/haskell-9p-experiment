@@ -38,6 +38,8 @@ type Plan9Msg = Network.Plan9Hask.Msg.Value
 
 data ParseError = OutOfBytes | ParseError | UnknownMsgType deriving (Show)
 
+data ParseResult a = ParserResult {parsedElement :: a, remainder :: Data.ByteString.ByteString}
+
 parseMsgBody :: (Int, Data.ByteString.ByteString) -> Either ParseError Plan9Msg
 parseMsgBody (size, msgBytes)
   | Data.ByteString.length msgBytes < 1 + 2 = Left OutOfBytes
@@ -54,13 +56,14 @@ parseTversion :: Network.Plan9Hask.Msg.Tag -> Data.ByteString.ByteString -> Eith
 parseTversion tag msgBytes
   | Data.ByteString.length msgBytes < 1 + 2 + 4 = Left OutOfBytes
   | otherwise = case parsePlan9Str $ Data.ByteString.drop (1 + 2 + 4) msgBytes of
-    Right versionStr -> Right $
-        Network.Plan9Hask.Msg.Tversion
-          { Network.Plan9Hask.Msg.mSize = convertLeWord32 msgBytes [3, 4, 5, 6],
-            Network.Plan9Hask.Msg.version = versionStr,
-            Network.Plan9Hask.Msg.tag = tag.getTag
-          }
-    Left err -> Left err
+      Right versionStr ->
+        Right $
+          Network.Plan9Hask.Msg.Tversion
+            { Network.Plan9Hask.Msg.mSize = convertLeWord32 msgBytes [3, 4, 5, 6],
+              Network.Plan9Hask.Msg.version = versionStr,
+              Network.Plan9Hask.Msg.tag = tag.getTag
+            }
+      Left err -> Left err
 
 convertLeWord16 :: Data.ByteString.ByteString -> [Int] -> Data.Word.Word16
 convertLeWord16 = convertLe
@@ -86,11 +89,29 @@ parseTag msgBytes = Network.Plan9Hask.Msg.Tag $ firstByte .|. secondByte
 parsePlan9Str :: Data.ByteString.ByteString -> Either ParseError Data.Text.Text
 parsePlan9Str byteStr = fmap Data.Text.Encoding.decodeUtf8 $ parsePlan9VarArg byteStr
 
+parsePlan9StrWithRemainder :: Data.ByteString.ByteString -> Either ParseError (ParseResult Data.Text.Text)
+parsePlan9StrWithRemainder byteStr =
+  fmap
+    ( \result ->
+        result
+          { parsedElement = (Data.Text.Encoding.decodeUtf8 result.parsedElement)
+          }
+    )
+    $ parsePlan9VarArgWithRemainder byteStr
+
 parsePlan9VarArg :: Data.ByteString.ByteString -> Either ParseError Data.ByteString.ByteString
-parsePlan9VarArg byteStr
-    | Data.ByteString.length byteStr < 2 = Left OutOfBytes
-    | strSize <- convertLe byteStr [0, 1],
+parsePlan9VarArg byteStr = fmap (\result -> result.parsedElement) $ parsePlan9VarArgWithRemainder byteStr
+
+parsePlan9VarArgWithRemainder :: Data.ByteString.ByteString -> Either ParseError (ParseResult Data.ByteString.ByteString)
+parsePlan9VarArgWithRemainder byteStr
+  | Data.ByteString.length byteStr < 2 = Left OutOfBytes
+  | strSize <- convertLe byteStr [0, 1],
     strBytes <- Data.ByteString.take strSize (Data.ByteString.drop 2 byteStr) =
-        if Data.ByteString.length strBytes < strSize
+      if Data.ByteString.length strBytes < strSize
         then Left OutOfBytes
-        else Right strBytes
+        else
+          Right $
+            ParserResult
+              { parsedElement = strBytes,
+                remainder = (Data.ByteString.drop (2 + strSize) byteStr)
+              }
