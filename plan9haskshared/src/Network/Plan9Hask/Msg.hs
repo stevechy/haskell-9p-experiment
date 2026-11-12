@@ -2,10 +2,10 @@
 
 module Network.Plan9Hask.Msg where
 
-import Data.Word qualified
 import Data.Text qualified
+import Data.Word qualified
 
-newtype MessageType = MessageType{ getMsgType :: Data.Word.Word8 }
+newtype MessageType = MessageType {getMsgType :: Data.Word.Word8}
 
 tVersion = MessageType 100
 
@@ -69,5 +69,18 @@ tOpenfd = MessageType 98
 
 rOpenfd = MessageType 99
 
+newtype Tag = Tag {getTag :: Data.Word.Word16} deriving Show
 
-data Value = Tversion { tag:: Data.Word.Word16, mSize :: Data.Word.Word32, version:: Data.Text.Text } deriving Show
+newtype Fid = Fid {getFid :: Data.Word.Word32} deriving Show
+newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
+newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
+newtype VarArgByteLength = VarArgByteLength { getVarArgByteLength :: Data.Text.Text } deriving Show
+newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
+newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show
+newtype Permissions = Permissions {getPermissions:: Data.Word.Word32} deriving Show
+newtype Offset = Offset { getOffset:: Data.Word.Word64 } deriving Show
+newtype ReadCount = ReadCount {getReadCount :: Data.Word.Word32} deriving Show
+
+data Stat = Stat
+
+data Value = Tversion {tag :: Data.Word.Word16, mSize :: Data.Word.Word32, version :: Data.Text.Text} deriving (Show)

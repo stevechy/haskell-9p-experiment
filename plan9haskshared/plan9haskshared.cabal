@@ -26,6 +26,7 @@ source-repository head
 library
   exposed-modules:
       Lib
+      Network.Plan9Hask.HandlerParser
       Network.Plan9Hask.Msg
       Network.Plan9Hask.Parser
   other-modules:

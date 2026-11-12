@@ -45,11 +45,12 @@ parseMsgBody (size, msgBytes)
     tag <- parseTag msgBytes =
       handleMsgType msgType tag msgBytes
 
-handleMsgType :: Data.Word.Word8 -> Data.Word.Word16 -> Data.ByteString.ByteString -> Either ParseError Plan9Msg
+handleMsgType :: Data.Word.Word8 -> Network.Plan9Hask.Msg.Tag -> Data.ByteString.ByteString -> Either ParseError Plan9Msg
 handleMsgType msgType tag msgBytes
   | msgType == Network.Plan9Hask.Msg.tVersion.getMsgType = parseTversion tag msgBytes
   | otherwise = Left UnknownMsgType
 
+parseTversion :: Network.Plan9Hask.Msg.Tag -> Data.ByteString.ByteString -> Either ParseError Plan9Msg
 parseTversion tag msgBytes
   | Data.ByteString.length msgBytes < 1 + 2 + 4 = Left OutOfBytes
   | otherwise = case parsePlan9Str $ Data.ByteString.drop (1 + 2 + 4) msgBytes of
@@ -57,7 +58,7 @@ parseTversion tag msgBytes
         Network.Plan9Hask.Msg.Tversion
           { Network.Plan9Hask.Msg.mSize = convertLeWord32 msgBytes [3, 4, 5, 6],
             Network.Plan9Hask.Msg.version = versionStr,
-            Network.Plan9Hask.Msg.tag = tag
+            Network.Plan9Hask.Msg.tag = tag.getTag
           }
     Left err -> Left err
 
@@ -70,23 +71,26 @@ convertLeWord32 = convertLe
 convertLe :: forall a. (Data.Bits.Bits a, Num a) => Data.ByteString.ByteString -> [Int] -> a
 convertLe byteStr indices = go (zeroBits @a) 0 indices
   where
-    go bits i (idx : rest) = go newBits (i + 8) rest
+    go bits i (idx : rest) = newBits `seq` go newBits (i + 8) rest
       where
         newBits = castByte `shift` i .|. bits
         castByte = fromIntegral @Data.Word.Word8 @a (Data.ByteString.index byteStr idx)
     go bits i [] = bits
 
-parseTag :: Data.ByteString.ByteString -> Data.Word.Word16
-parseTag msgBytes = firstByte .|. secondByte
+parseTag :: Data.ByteString.ByteString -> Network.Plan9Hask.Msg.Tag
+parseTag msgBytes = Network.Plan9Hask.Msg.Tag $ firstByte .|. secondByte
   where
     firstByte :: Data.Word.Word16 = fromIntegral (Data.ByteString.index msgBytes 1)
     secondByte :: Data.Word.Word16 = fromIntegral (Data.ByteString.index msgBytes 2) `shift` 8
 
 parsePlan9Str :: Data.ByteString.ByteString -> Either ParseError Data.Text.Text
-parsePlan9Str byteStr
-  | Data.ByteString.length byteStr < 2 = Left OutOfBytes
-  | strSize <- convertLe byteStr [0, 1],
+parsePlan9Str byteStr = fmap Data.Text.Encoding.decodeUtf8 $ parsePlan9VarArg byteStr
+
+parsePlan9VarArg :: Data.ByteString.ByteString -> Either ParseError Data.ByteString.ByteString
+parsePlan9VarArg byteStr
+    | Data.ByteString.length byteStr < 2 = Left OutOfBytes
+    | strSize <- convertLe byteStr [0, 1],
     strBytes <- Data.ByteString.take strSize (Data.ByteString.drop 2 byteStr) =
-      if Data.ByteString.length strBytes < strSize
+        if Data.ByteString.length strBytes < strSize
         then Left OutOfBytes
-        else Right $ Data.Text.Encoding.decodeUtf8 strBytes
+        else Right strBytes

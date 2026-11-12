@@ -25,6 +25,7 @@ dependencies:
 - bytestring
 - async
 - dhall
+- text
 
 ghc-options:
 - -Wall

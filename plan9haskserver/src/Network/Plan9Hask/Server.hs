@@ -1,4 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Network.Plan9Hask.Server
   ( serve9p,
@@ -12,8 +14,11 @@ import Data.List.NonEmpty qualified
 import Network.Socket qualified
 import Network.Socket.ByteString qualified
 import Network.Plan9Hask.Parser qualified
+import Network.Plan9Hask.HandlerParser qualified
 import Data.Attoparsec.ByteString qualified
 import Data.Attoparsec qualified
+import Data.Text qualified
+import Data.Text.IO qualified
 import Data.Int
 
 openServerSocket :: Network.Socket.AddrInfo -> IO (Network.Socket.Socket)
@@ -27,6 +32,18 @@ openServerSocket addr = Control.Exception.bracketOnError
 
     return sock
 
+showParser :: Network.Plan9Hask.HandlerParser.Plan9Callback Data.Text.Text
+showParser =
+    let
+        handleTVersion tag mSize version = Data.Text.concat ["tVersion ",
+            (Data.Text.pack $ show tag) ,
+            " m ",
+            (Data.Text.pack $ show mSize) ,
+            " v ",
+            (Data.Text.pack $ show version)]
+        handleParseError err = Data.Text.concat ["Parse error ", Data.Text.pack $ show err ]
+    in Network.Plan9Hask.HandlerParser.Plan9Callback {..}
+
 handler :: Network.Socket.Socket -> IO ()
 handler socket = do
   putStrLn "Handling"
@@ -36,7 +53,8 @@ handler socket = do
     (Data.Attoparsec.Done remainder (size, msgBody) ) -> do
         let parsedInt64 :: Int64 = fromIntegral size
             parsedMsg = Network.Plan9Hask.Parser.parseMsgBody (size, msgBody)
-        putStrLn $ "Success" ++ (show parsedInt64) ++ (show parsedMsg)
+        putStrLn $ "Success" ++ (show parsedInt64)
+        Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showParser msgBody
     (Data.Attoparsec.Partial _) -> putStrLn "Partial"
     (Data.Attoparsec.Fail _ _ _ ) -> putStrLn "Fail"
   return ()
