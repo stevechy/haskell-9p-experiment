@@ -95,7 +95,7 @@ tOpenCallback callbacks tag msgBytes
     | otherwise =
         let parse = do
                 fid <- Right (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
-                mode <- Right (Msg.OpenMode $ Data.ByteString.index msgBytes [7])
+                mode <- Right (Msg.OpenMode $ Data.ByteString.index msgBytes 7)
                 return $ callbacks.handleTOpen tag fid mode
         in case parse of
             (Right value) -> value
