@@ -4,6 +4,7 @@ module Network.Plan9Hask.Msg where
 
 import Data.Text qualified
 import Data.Word qualified
+import Data.ByteString qualified
 
 newtype MessageType = MessageType {getMsgType :: Data.Word.Word8}
 
@@ -75,6 +76,11 @@ newtype Fid = Fid {getFid :: Data.Word.Word32} deriving Show
 newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
 newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
 newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
+
+newtype ArrayLength = ArrayLength { getArrayLength :: Data.Word.Word16 } deriving Show
+
+newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving Show
+
 newtype VarArgByteLength = VarArgByteLength { getVarArgByteLength :: Data.Text.Text } deriving Show
 newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
 newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show

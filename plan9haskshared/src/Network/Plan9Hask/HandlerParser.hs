@@ -6,9 +6,7 @@ import Data.ByteString qualified
 import Data.Text qualified
 import Data.Word qualified
 import Network.Plan9Hask.Msg qualified as Msg
-import Network.Plan9Hask.Parser (ParseResult (parsedElement))
 import Network.Plan9Hask.Parser qualified as Parser
-import System.Posix.Internals (st_mode)
 
 data Plan9Callback a = Plan9Callback
   { handleTVersion :: Msg.Tag -> Data.Word.Word32 -> Data.Text.Text -> a,
@@ -46,6 +44,9 @@ handleMsgType callbacks msgType tag msgBytes
   | msgType == Msg.tAuth.getMsgType = tAuthCallback callbacks tag msgBytes
   | msgType == Msg.tFlush.getMsgType = tFlushCallback callbacks tag msgBytes
   | msgType == Msg.tAttach.getMsgType = tAttachCallback callbacks tag msgBytes
+  | msgType == Msg.tClunk.getMsgType = fidOnlyCallback (callbacks.handleTClunk) (callbacks.handleParseError) tag msgBytes
+  | msgType == Msg.tRemove.getMsgType = fidOnlyCallback (callbacks.handleTRemove) (callbacks.handleParseError) tag msgBytes
+  | msgType == Msg.tStat.getMsgType = fidOnlyCallback (callbacks.handleTStat) (callbacks.handleParseError) tag msgBytes
   | otherwise = callbacks.handleParseError Parser.UnknownMsgType
 
 tVersionCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
@@ -62,7 +63,7 @@ tAuthCallback callbacks tag msgBytes
       let parse = do
             afid <- Right (Msg.AuthFid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
             let remainingBytes = Data.ByteString.drop (messageTypeAndTagSize + 4) msgBytes
-            usernameResult <- fmap (\result -> result {parsedElement = Msg.Username result.parsedElement}) $ Parser.parsePlan9StrWithRemainder $ remainingBytes
+            usernameResult <- fmap (mapParsedElement Msg.Username) $ Parser.parsePlan9StrWithRemainder $ remainingBytes
             attachName <- fmap Msg.AttachName $ Parser.parsePlan9Str $ usernameResult.remainder
             return $ callbacks.handleTAuth tag afid (usernameResult.parsedElement) attachName
        in case parse of
@@ -82,12 +83,15 @@ tAttachCallback callbacks tag msgBytes
             fid <- Right (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
             afid <- Right (Msg.AuthFid $ Parser.convertLeWord32 msgBytes [7, 8, 9, 10])
             let remainingBytes = Data.ByteString.drop (messageTypeAndTagSize + 4 + 4) msgBytes
-            usernameResult <- fmap (\result -> result {parsedElement = Msg.Username result.parsedElement}) $ Parser.parsePlan9StrWithRemainder $ remainingBytes
+            usernameResult <- fmap (mapParsedElement Msg.Username) $ Parser.parsePlan9StrWithRemainder $ remainingBytes
             attachName <- fmap Msg.AttachName $ Parser.parsePlan9Str $ usernameResult.remainder
             return $ callbacks.handleTAttach tag fid afid (usernameResult.parsedElement) attachName
        in case parse of
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
+
+mapParsedElement :: (a -> b) -> Parser.ParseResult a -> Parser.ParseResult b
+mapParsedElement f result = result { Parser.parsedElement = f result.parsedElement }
 
 tOpenCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tOpenCallback callbacks tag msgBytes
@@ -100,3 +104,8 @@ tOpenCallback callbacks tag msgBytes
         in case parse of
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
+
+fidOnlyCallback :: (Msg.Tag -> Msg.Fid -> a) -> (Parser.ParseError -> a) -> Msg.Tag -> Data.ByteString.ByteString -> a
+fidOnlyCallback callback errCallback tag msgBytes
+    | Data.ByteString.length msgBytes < messageTypeAndTagSize + 4 = errCallback Parser.OutOfBytes
+    | otherwise = callback tag (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
