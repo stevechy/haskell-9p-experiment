@@ -80,6 +80,7 @@ newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
 newtype ArrayElementCount = ArrayElementCount { getArrayElementCount :: Data.Word.Word16 } deriving Show
 
 newtype ByteCount = ByteCount { getByteCount :: Data.Word.Word32 } deriving Show
+newtype EpochSeconds = EpochSeconds { getEpochSeconds :: Data.Word.Word32 } deriving Show
 
 newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving Show
 
@@ -89,6 +90,19 @@ newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Sh
 newtype Permissions = Permissions {getPermissions:: Data.Word.Word32 } deriving Show
 newtype Offset = Offset { getOffset:: Data.Word.Word64 } deriving Show
 
-data Stat = Stat
+data Stat = Stat {
+    size :: ByteCount,
+    statType :: Data.Word.Word16,
+    statDev :: Data.Word.Word32,
+    qid :: Qid,
+    mode :: Permissions,
+    atime :: EpochSeconds,
+    mtime :: EpochSeconds,
+    length :: Offset,
+    fileName :: Data.Text.Text,
+    uid :: Data.Text.Text,
+    gid :: Data.Text.Text,
+    muid :: Data.Text.Text
+}
 
 data Value = Tversion {tag :: Data.Word.Word16, mSize :: Data.Word.Word32, version :: Data.Text.Text} deriving (Show)
