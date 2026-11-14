@@ -13,11 +13,11 @@ data Plan9Callback a = Plan9Callback
     handleTAuth :: Msg.Tag -> Msg.AuthFid -> Msg.Username -> Msg.AttachName -> a,
     handleTFlush :: Msg.Tag -> Msg.Tag -> a,
     handleTAttach :: Msg.Tag -> Msg.Fid -> Msg.AuthFid -> Msg.Username -> Msg.AttachName -> a,
-    handleTWalk :: Msg.Tag -> Msg.Fid -> Msg.Fid -> Msg.VarArgByteLength -> a,
+    handleTWalk :: Msg.Tag -> Msg.Fid -> Msg.Fid -> Msg.ArrayElementCount -> [Data.Text.Text] -> a,
     handleTOpen :: Msg.Tag -> Msg.Fid -> Msg.OpenMode -> a,
-    handleTCreate :: Msg.Tag -> Msg.Fid -> Data.Text.Text -> Msg.Permissions -> Msg.CreateMode -> a,
-    handleTRead :: Msg.Tag -> Msg.Fid -> Msg.Offset -> Msg.ReadCount -> a,
-    handleTWrite :: Msg.Tag -> Msg.Fid -> Msg.Offset -> Data.ByteString.ByteString -> a,
+    handleTCreate :: Msg.Tag -> Msg.Fid -> Data.Text.Text -> Msg.Permissions -> Msg.OpenMode -> a,
+    handleTRead :: Msg.Tag -> Msg.Fid -> Msg.Offset -> Msg.ByteCount -> a,
+    handleTWrite :: Msg.Tag -> Msg.Fid -> Msg.Offset -> Msg.ByteCount -> Data.ByteString.ByteString -> a,
     handleTClunk :: Msg.Tag -> Msg.Fid -> a,
     handleTRemove :: Msg.Tag -> Msg.Fid -> a,
     handleTStat :: Msg.Tag -> Msg.Fid -> a,
@@ -25,10 +25,13 @@ data Plan9Callback a = Plan9Callback
     handleParseError :: Parser.ParseError -> a
   }
 
+messageTypeSize :: Int
 messageTypeSize = 1
 
+messageTagSize :: Int
 messageTagSize = 2
 
+messageTypeAndTagSize :: Int
 messageTypeAndTagSize = 1 + 2
 
 handleMsgBody :: Plan9Callback a -> Data.ByteString.ByteString -> a
@@ -44,6 +47,10 @@ handleMsgType callbacks msgType tag msgBytes
   | msgType == Msg.tAuth.getMsgType = tAuthCallback callbacks tag msgBytes
   | msgType == Msg.tFlush.getMsgType = tFlushCallback callbacks tag msgBytes
   | msgType == Msg.tAttach.getMsgType = tAttachCallback callbacks tag msgBytes
+  | msgType == Msg.tWalk.getMsgType = tWalkCallback callbacks tag msgBytes
+  | msgType == Msg.tOpen.getMsgType = tOpenCallback callbacks tag msgBytes
+  | msgType == Msg.tRead.getMsgType = tReadCallback callbacks tag msgBytes
+  | msgType == Msg.tWrite.getMsgType = tWriteCallback callbacks tag msgBytes
   | msgType == Msg.tClunk.getMsgType = fidOnlyCallback (callbacks.handleTClunk) (callbacks.handleParseError) tag msgBytes
   | msgType == Msg.tRemove.getMsgType = fidOnlyCallback (callbacks.handleTRemove) (callbacks.handleParseError) tag msgBytes
   | msgType == Msg.tStat.getMsgType = fidOnlyCallback (callbacks.handleTStat) (callbacks.handleParseError) tag msgBytes
@@ -101,6 +108,49 @@ tOpenCallback callbacks tag msgBytes
                 fid <- Right (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
                 mode <- Right (Msg.OpenMode $ Data.ByteString.index msgBytes 7)
                 return $ callbacks.handleTOpen tag fid mode
+        in case parse of
+            (Right value) -> value
+            (Left err) -> callbacks.handleParseError err
+
+tWalkCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tWalkCallback callbacks tag msgBytes
+    | Data.ByteString.length msgBytes < messageTypeAndTagSize + 4 + 4 + 2 = callbacks.handleParseError Parser.OutOfBytes
+    | otherwise =
+        let parse = do
+                let fixedElementBytes = messageTypeAndTagSize + 4 + 4 + 2
+                    fid = (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
+                    newFid = (Msg.Fid $ Parser.convertLeWord32 msgBytes [7, 8, 9, 10])
+                    walkNameElementCount = (Msg.ArrayElementCount $ Parser.convertLeWord16 msgBytes [11, 12])
+                walkNames <- Parser.parsePlan9StrArray (Data.ByteString.drop fixedElementBytes msgBytes) walkNameElementCount
+                return $ callbacks.handleTWalk tag fid newFid walkNameElementCount walkNames
+        in case parse of
+            (Right value) -> value
+            (Left err) -> callbacks.handleParseError err
+
+tReadCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tReadCallback callbacks tag msgBytes
+    | Data.ByteString.length msgBytes < messageTypeAndTagSize + 4 + 8 + 4 = callbacks.handleParseError Parser.OutOfBytes
+    | otherwise =
+        let parse = do
+                fid <- Right (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
+                offset <- Right (Msg.Offset $ Parser.convertLeWord64 msgBytes [7, 8, 9, 10, 11, 12, 13, 14])
+                count <- Right (Msg.ByteCount $ Parser.convertLeWord32 msgBytes [15,16,17,18])
+                return $ callbacks.handleTRead tag fid offset count
+        in case parse of
+            (Right value) -> value
+            (Left err) -> callbacks.handleParseError err
+
+tWriteCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tWriteCallback callbacks tag msgBytes
+    | Data.ByteString.length msgBytes < messageTypeAndTagSize + 4 + 8 + 4 = callbacks.handleParseError Parser.OutOfBytes
+    | otherwise =
+        let parse = do
+                let fixedElementBytes = messageTypeAndTagSize + 4 + 8 + 4
+                fid <- Right (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
+                offset <- Right (Msg.Offset $ Parser.convertLeWord64 msgBytes [7, 8, 9, 10, 11, 12, 13, 14])
+                count <- Right (Msg.ByteCount $ Parser.convertLeWord32 msgBytes [15,16,17,18])
+                validDataBytes <- Parser.parseValidDataBytes (Data.ByteString.drop fixedElementBytes msgBytes) count
+                return $ callbacks.handleTWrite tag fid offset count validDataBytes
         in case parse of
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err

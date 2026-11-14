@@ -77,16 +77,17 @@ newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
 newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
 newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
 
-newtype ArrayLength = ArrayLength { getArrayLength :: Data.Word.Word16 } deriving Show
+newtype ArrayElementCount = ArrayElementCount { getArrayElementCount :: Data.Word.Word16 } deriving Show
+
+newtype ByteCount = ByteCount { getByteCount :: Data.Word.Word32 } deriving Show
 
 newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving Show
 
 newtype VarArgByteLength = VarArgByteLength { getVarArgByteLength :: Data.Text.Text } deriving Show
 newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
 newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show
-newtype Permissions = Permissions {getPermissions:: Data.Word.Word32} deriving Show
+newtype Permissions = Permissions {getPermissions:: Data.Word.Word32 } deriving Show
 newtype Offset = Offset { getOffset:: Data.Word.Word64 } deriving Show
-newtype ReadCount = ReadCount {getReadCount :: Data.Word.Word32} deriving Show
 
 data Stat = Stat
 

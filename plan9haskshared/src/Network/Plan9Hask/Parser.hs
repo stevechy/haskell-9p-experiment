@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -36,9 +37,9 @@ runMsgParser bytes = Data.Attoparsec.ByteString.parse (msgParser 8192) bytes
 
 type Plan9Msg = Network.Plan9Hask.Msg.Value
 
-data ParseError = OutOfBytes | ParseError | UnknownMsgType deriving (Show)
+data ParseError = OutOfBytes | ParseError | UnknownMsgType | ElementCountMismatch deriving (Show)
 
-data ParseResult a = ParserResult {parsedElement :: a, remainder :: Data.ByteString.ByteString}
+data ParseResult a = ParseResult {parsedElement :: a, remainder :: Data.ByteString.ByteString}
 
 parseMsgBody :: (Int, Data.ByteString.ByteString) -> Either ParseError Plan9Msg
 parseMsgBody (size, msgBytes)
@@ -71,6 +72,17 @@ convertLeWord16 = convertLe
 convertLeWord32 :: Data.ByteString.ByteString -> [Int] -> Data.Word.Word32
 convertLeWord32 = convertLe
 
+convertLeWord64 :: Data.ByteString.ByteString -> [Int] -> Data.Word.Word64
+convertLeWord64 = convertLe
+
+parseValidDataBytes :: Data.ByteString.ByteString -> Network.Plan9Hask.Msg.ByteCount -> Either ParseError Data.ByteString.ByteString
+parseValidDataBytes msgBytes expectedByteCount =
+  let expectedByteCountInt = fromIntegral @Data.Word.Word32 @Int expectedByteCount.getByteCount -- Possible overflow
+      dataBytes = Data.ByteString.take expectedByteCountInt msgBytes
+   in if (Data.ByteString.length dataBytes == expectedByteCountInt)
+        then (Right $ dataBytes)
+        else (Left $ OutOfBytes)
+
 convertLe :: forall a. (Data.Bits.Bits a, Num a) => Data.ByteString.ByteString -> [Int] -> a
 convertLe byteStr indices = go (zeroBits @a) 0 indices
   where
@@ -78,13 +90,27 @@ convertLe byteStr indices = go (zeroBits @a) 0 indices
       where
         newBits = castByte `shift` i .|. bits
         castByte = fromIntegral @Data.Word.Word8 @a (Data.ByteString.index byteStr idx)
-    go bits i [] = bits
+    go bits _ [] = bits
 
 parseTag :: Data.ByteString.ByteString -> Network.Plan9Hask.Msg.Tag
 parseTag msgBytes = Network.Plan9Hask.Msg.Tag $ firstByte .|. secondByte
   where
     firstByte :: Data.Word.Word16 = fromIntegral (Data.ByteString.index msgBytes 1)
     secondByte :: Data.Word.Word16 = fromIntegral (Data.ByteString.index msgBytes 2) `shift` 8
+
+parsePlan9StrArray :: Data.ByteString.ByteString -> Network.Plan9Hask.Msg.ArrayElementCount -> Either ParseError [Data.Text.Text]
+parsePlan9StrArray msgBytes elementCount =
+  case strArrayResult of
+    (Right elems) | (length elems /= (fromIntegral elementCount.getArrayElementCount)) -> Left ElementCountMismatch
+    (Right elems) -> elems `seq` Right elems
+    (Left err) -> Left err
+  where
+    strArrayResult = go [] msgBytes
+    go elems byteStr | Data.ByteString.length byteStr == 0 = Right elems
+    go elems byteStr =
+      case parsePlan9StrWithRemainder byteStr of
+        (Left err) -> Left err
+        (Right (ParseResult {..})) -> go (parsedElement : elems) remainder
 
 parsePlan9Str :: Data.ByteString.ByteString -> Either ParseError Data.Text.Text
 parsePlan9Str byteStr = fmap Data.Text.Encoding.decodeUtf8 $ parsePlan9VarArg byteStr
@@ -111,7 +137,7 @@ parsePlan9VarArgWithRemainder byteStr
         then Left OutOfBytes
         else
           Right $
-            ParserResult
+            ParseResult
               { parsedElement = strBytes,
                 remainder = (Data.ByteString.drop (2 + strSize) byteStr)
               }
