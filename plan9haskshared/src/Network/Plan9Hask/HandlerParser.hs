@@ -21,7 +21,7 @@ data Plan9Callback a = Plan9Callback
     handleTClunk :: Msg.Tag -> Msg.Fid -> a,
     handleTRemove :: Msg.Tag -> Msg.Fid -> a,
     handleTStat :: Msg.Tag -> Msg.Fid -> a,
-    handleTWstat :: Msg.Tag -> Msg.Fid -> Msg.Stat -> a,
+    handleTWstat :: Msg.Tag -> Msg.Fid -> [Msg.Stat] -> a,
     handleParseError :: Parser.ParseError -> a
   }
 
@@ -49,6 +49,7 @@ handleMsgType callbacks msgType tag msgBytes
   | msgType == Msg.tAttach.getMsgType = tAttachCallback callbacks tag msgBytes
   | msgType == Msg.tWalk.getMsgType = tWalkCallback callbacks tag msgBytes
   | msgType == Msg.tOpen.getMsgType = tOpenCallback callbacks tag msgBytes
+  | msgType == Msg.tCreate.getMsgType = tCreateCallback callbacks tag msgBytes
   | msgType == Msg.tRead.getMsgType = tReadCallback callbacks tag msgBytes
   | msgType == Msg.tWrite.getMsgType = tWriteCallback callbacks tag msgBytes
   | msgType == Msg.tClunk.getMsgType = fidOnlyCallback (callbacks.handleTClunk) (callbacks.handleParseError) tag msgBytes
@@ -108,6 +109,26 @@ tOpenCallback callbacks tag msgBytes
                 fid <- Right (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
                 mode <- Right (Msg.OpenMode $ Data.ByteString.index msgBytes 7)
                 return $ callbacks.handleTOpen tag fid mode
+        in case parse of
+            (Right value) -> value
+            (Left err) -> callbacks.handleParseError err
+
+tCreateCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tCreateCallback callbacks tag msgBytes
+    | Data.ByteString.length msgBytes < messageTypeAndTagSize + 4 + 2 + 4 + 1 = callbacks.handleParseError Parser.OutOfBytes
+    | otherwise =
+        let parse = do
+                let
+                    fixedPrefixElementBytes = messageTypeAndTagSize + 4
+                    fid = (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
+                nameResult <- Parser.parsePlan9StrWithRemainder (Data.ByteString.drop fixedPrefixElementBytes msgBytes)
+                let bytesAfterName = nameResult.remainder
+                if (Data.ByteString.length bytesAfterName) <  4 + 1
+                    then Left $ Parser.OutOfBytes
+                    else Right ()
+                permissions <- Right $ Msg.Permissions $ Parser.convertLeWord32 bytesAfterName [0, 1, 2, 3]
+                mode <- Right $ Msg.OpenMode $ Data.ByteString.index bytesAfterName 4
+                return $ callbacks.handleTCreate tag fid nameResult.parsedElement permissions mode
         in case parse of
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
