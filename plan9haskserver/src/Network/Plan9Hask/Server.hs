@@ -56,15 +56,14 @@ handler socket = do
         Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showParser msgBody
     (Data.Attoparsec.ByteString.Partial _) -> putStrLn "Partial"
     (Data.Attoparsec.ByteString.Fail _ _ _ ) -> putStrLn "Fail"
-  return ()
 
 spawnHandler :: Network.Socket.Socket -> IO ()
 spawnHandler socket = Control.Exception.bracketOnError
   (Network.Socket.accept socket)
   (\(sock, _) -> Network.Socket.close sock)
-  $ \(sock, sockAddr) -> do
+  $ \(sock, _sockAddr) -> do
     putStrLn "Accepted"
-    asyncHandle <- Control.Concurrent.Async.async (handler sock)
+    _asyncHandle <- Control.Concurrent.Async.async (handler sock)
     return ()
 
 serverHints :: Network.Socket.AddrInfo
@@ -81,7 +80,7 @@ serverThread = do
 serve9p :: IO ()
 serve9p = do
   putStrLn "Serving 9p"
-  serveResult <- Control.Concurrent.Async.withAsync serverThread $ \asyncHandle -> do
+  Control.Concurrent.Async.withAsync serverThread $ \asyncHandle -> do
     putStrLn "Waiting"
     Control.Concurrent.Async.wait asyncHandle
   putStrLn "Done"
