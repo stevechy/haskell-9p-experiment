@@ -16,7 +16,6 @@ import Network.Socket.ByteString qualified
 import Network.Plan9Hask.Parser qualified
 import Network.Plan9Hask.HandlerParser qualified
 import Data.Attoparsec.ByteString qualified
-import Data.Attoparsec qualified
 import Data.Text qualified
 import Data.Text.IO qualified
 import Data.Int
@@ -50,13 +49,13 @@ handler socket = do
   msg <- Network.Socket.ByteString.recv socket 512
   let parseResult = Network.Plan9Hask.Parser.runMsgParser msg
   case parseResult of
-    (Data.Attoparsec.Done remainder (size, msgBody) ) -> do
+    (Data.Attoparsec.ByteString.Done remainder (size, msgBody) ) -> do
         let parsedInt64 :: Int64 = fromIntegral size
             parsedMsg = Network.Plan9Hask.Parser.parseMsgBody (size, msgBody)
         putStrLn $ "Success" ++ (show parsedInt64)
         Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showParser msgBody
-    (Data.Attoparsec.Partial _) -> putStrLn "Partial"
-    (Data.Attoparsec.Fail _ _ _ ) -> putStrLn "Fail"
+    (Data.Attoparsec.ByteString.Partial _) -> putStrLn "Partial"
+    (Data.Attoparsec.ByteString.Fail _ _ _ ) -> putStrLn "Fail"
   return ()
 
 spawnHandler :: Network.Socket.Socket -> IO ()

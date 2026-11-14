@@ -19,8 +19,10 @@ import Network.Socket.ByteString.Lazy qualified
 
 data SizeOnly = SizeOnly {msgSize :: Data.Word.Word32} deriving (Dhall.Generic, Show)
 
+clientHints :: Network.Socket.AddrInfo
 clientHints = Network.Socket.defaultHints {Network.Socket.addrSocketType = Network.Socket.Stream}
 
+connect :: Network.Socket.AddrInfo -> IO Network.Socket.Socket
 connect addr = Control.Exception.bracketOnError
   (Network.Socket.openSocket addr)
   Network.Socket.close
@@ -28,10 +30,12 @@ connect addr = Control.Exception.bracketOnError
     Network.Socket.connect socket $ Network.Socket.addrAddress addr
     return socket
 
+withConnection :: Network.Socket.HostName -> Network.Socket.ServiceName -> (Network.Socket.Socket -> IO b) -> IO b
 withConnection host service handler = do
   addrs :: Data.List.NonEmpty.NonEmpty Network.Socket.AddrInfo <- (Network.Socket.getAddrInfo (Just clientHints) (Just host) (Just service))
   Control.Exception.bracket (connect $ Data.List.NonEmpty.head addrs) Network.Socket.close handler
 
+runClient :: IO ()
 runClient = do
   withConnection "127.0.0.1" "8564" $ \socket -> do
     Network.Socket.ByteString.Lazy.sendAll socket $ Data.ByteString.Builder.toLazyByteString $ versionMsgData 4192 1

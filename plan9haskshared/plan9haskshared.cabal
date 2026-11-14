@@ -29,6 +29,7 @@ library
       Network.Plan9Hask.HandlerParser
       Network.Plan9Hask.Msg
       Network.Plan9Hask.Parser
+      Network.Plan9Hask.RecordParser
   other-modules:
       Paths_plan9haskshared
   autogen-modules:
