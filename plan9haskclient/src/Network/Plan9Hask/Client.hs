@@ -39,6 +39,8 @@ runClient :: IO ()
 runClient = do
   withConnection "127.0.0.1" "8564" $ \socket -> do
     Network.Socket.ByteString.Lazy.sendAll socket $ Data.ByteString.Builder.toLazyByteString $ versionMsgData 4192 1
+    Network.Socket.ByteString.Lazy.sendAll socket $ Data.ByteString.Builder.toLazyByteString $ versionMsgData 4192 1
+    Network.Socket.ByteString.Lazy.sendAll socket $ Data.ByteString.Builder.toLazyByteString $ versionMsgData 4192 1
     putStrLn "Sent"
 
 msgWithHeader :: Data.Word.Word32 -> Network.Plan9Hask.Msg.MessageType -> Data.Word.Word16-> Data.ByteString.Builder.Builder
