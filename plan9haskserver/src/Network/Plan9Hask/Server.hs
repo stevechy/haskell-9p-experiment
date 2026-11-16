@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -18,7 +19,6 @@ import Data.Text qualified
 import Data.Text.IO qualified
 import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.Parser qualified
-import Network.Plan9Hask.RecordParser qualified
 import Network.Socket qualified
 import Network.Socket.ByteString qualified
 
@@ -44,23 +44,47 @@ showParser =
             " v ",
             (Data.Text.pack $ show version)
           ]
+      handleTAuth tag authFid username attachName = Data.Text.concat ["tAuth"]
+      handleTFlush tag oldTag = Data.Text.concat ["tFlush"]
+      handleTAttach tag fid authFid username attachName = Data.Text.concat ["tAttach"]
+      handleTWalk tag fid newFid walkNameCount walkNames = Data.Text.concat ["tWalk"]
+      handleTOpen tag fid openMode = Data.Text.concat ["tOpen"]
+      handleTCreate tag fid fileName permissions mode = Data.Text.concat ["tCreate"]
+      handleTRead tag fid offset readByteCount = Data.Text.concat ["tRead"]
+      handleTWrite tag fid offset writeByteCount writeData = Data.Text.concat ["tWrite"]
+      handleTClunk tag fid = Data.Text.concat ["tClunk"]
+      handleTRemove tag fid = Data.Text.concat ["tRemove"]
+      handleTStat tag fid = Data.Text.concat ["tStat"]
+      handleTWstat tag fid statByteCount stat = Data.Text.concat ["tWStat"]
       handleParseError err = Data.Text.concat ["Parse error ", Data.Text.pack $ show err]
    in Network.Plan9Hask.HandlerParser.Plan9Callback {..}
 
+data HandlerState
+  = FreshParse
+      { buffer :: Data.ByteString.ByteString
+      }
+  | PartialParse
+      { partial :: (Data.ByteString.ByteString -> Data.Attoparsec.ByteString.IResult Data.ByteString.ByteString (Int, Data.ByteString.ByteString))
+      }
+
 handler :: Network.Socket.Socket -> IO ()
-handler socket = go socket Data.ByteString.empty
+handler sock = go sock (FreshParse {buffer = Data.ByteString.empty})
   where
-    go socket buffer = do
+    go socket handlerState = do
       putStrLn "Handling"
       msg <- Network.Socket.ByteString.recv socket 512
-      let parseResult = Network.Plan9Hask.Parser.runMsgParser $ Data.ByteString.append buffer msg
+      let parseResult = case handlerState of
+            (FreshParse {..}) -> Network.Plan9Hask.Parser.runMsgParser $ Data.ByteString.append buffer msg
+            (PartialParse {..}) -> partial msg
       case parseResult of
         (Data.Attoparsec.ByteString.Done remainder (size, msgBody)) -> do
           let parsedInt64 :: Int64 = fromIntegral size
           putStrLn $ "Success" ++ (show parsedInt64)
           Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showParser msgBody
-          go socket remainder
-        (Data.Attoparsec.ByteString.Partial _) -> putStrLn "Partial"
+          go socket (FreshParse {buffer = remainder})
+        (Data.Attoparsec.ByteString.Partial cont) -> do
+          putStrLn $ "Partial"
+          go socket (PartialParse {partial = cont})
         (Data.Attoparsec.ByteString.Fail _ _ _) -> putStrLn "Fail"
 
 spawnHandler :: Network.Socket.Socket -> IO ()
