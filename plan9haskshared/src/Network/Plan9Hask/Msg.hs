@@ -80,18 +80,33 @@ newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
 newtype ArrayElementCount = ArrayElementCount { getArrayElementCount :: Data.Word.Word16 } deriving Show
 
 newtype ByteCount = ByteCount { getByteCount :: Data.Word.Word32 } deriving Show
+byteCountSize :: Int
+byteCountSize = 4
+
+newtype VarArgByteCount = VarArgByteCount { getVarArgByteCount:: Data.Word.Word16 } deriving Show
+varArgByteCountSize :: Int
+varArgByteCountSize = 2
+
 newtype EpochSeconds = EpochSeconds { getEpochSeconds :: Data.Word.Word32 } deriving Show
+epochSecondsSize :: Int
+epochSecondsSize = 4
 
 newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving Show
+qidSize :: Int
+qidSize = 13
 
-newtype VarArgByteLength = VarArgByteLength { getVarArgByteLength :: Data.Text.Text } deriving Show
 newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
 newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show
 newtype Permissions = Permissions {getPermissions:: Data.Word.Word32 } deriving Show
+permissionsSize :: Int
+permissionsSize = 4
+
 newtype Offset = Offset { getOffset:: Data.Word.Word64 } deriving Show
+offsetSize :: Int
+offsetSize = 8
 
 data Stat = Stat {
-    size :: ByteCount,
+    size :: VarArgByteCount,
     statType :: Data.Word.Word16,
     statDev :: Data.Word.Word32,
     qid :: Qid,
@@ -104,5 +119,19 @@ data Stat = Stat {
     gid :: Data.Text.Text,
     muid :: Data.Text.Text
 }
+
+statTypeSize :: Int
+statTypeSize = 2
+statDevSize :: Int
+statDevSize = 4
+
+messageTypeSize :: Int
+messageTypeSize = 1
+
+messageTagSize :: Int
+messageTagSize = 2
+
+messageTypeAndTagSize :: Int
+messageTypeAndTagSize = 1 + 2
 
 data Value = Tversion {tag :: Data.Word.Word16, mSize :: Data.Word.Word32, version :: Data.Text.Text} deriving (Show)

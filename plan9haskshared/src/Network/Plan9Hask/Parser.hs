@@ -12,7 +12,8 @@ import Data.Serialize.Get qualified
 import Data.Text qualified
 import Data.Text.Encoding qualified
 import Data.Word qualified
-import Network.Plan9Hask.Msg qualified
+import Network.Plan9Hask.Msg (Stat (fileName))
+import Network.Plan9Hask.Msg qualified as Msg
 
 maxIntAsWord32 :: Data.Word.Word32
 maxIntAsWord32 = fromIntegral (maxBound :: Int)
@@ -35,36 +36,9 @@ msgParser maxSize = do
 runMsgParser :: Data.ByteString.ByteString -> Data.Attoparsec.ByteString.Result (Int, Data.ByteString.ByteString)
 runMsgParser bytes = Data.Attoparsec.ByteString.parse (msgParser 8192) bytes
 
-type Plan9Msg = Network.Plan9Hask.Msg.Value
-
 data ParseError = OutOfBytes | ParseError | UnknownMsgType | ElementCountMismatch deriving (Show)
 
 data ParseResult a = ParseResult {parsedElement :: a, remainder :: Data.ByteString.ByteString}
-
-parseMsgBody :: (Int, Data.ByteString.ByteString) -> Either ParseError Plan9Msg
-parseMsgBody (size, msgBytes)
-  | Data.ByteString.length msgBytes < 1 + 2 = Left OutOfBytes
-  | msgType <- (Data.ByteString.index msgBytes 0),
-    tag <- parseTag msgBytes =
-      handleMsgType msgType tag msgBytes
-
-handleMsgType :: Data.Word.Word8 -> Network.Plan9Hask.Msg.Tag -> Data.ByteString.ByteString -> Either ParseError Plan9Msg
-handleMsgType msgType tag msgBytes
-  | msgType == Network.Plan9Hask.Msg.tVersion.getMsgType = parseTversion tag msgBytes
-  | otherwise = Left UnknownMsgType
-
-parseTversion :: Network.Plan9Hask.Msg.Tag -> Data.ByteString.ByteString -> Either ParseError Plan9Msg
-parseTversion tag msgBytes
-  | Data.ByteString.length msgBytes < 1 + 2 + 4 = Left OutOfBytes
-  | otherwise = case parsePlan9Str $ Data.ByteString.drop (1 + 2 + 4) msgBytes of
-      Right versionStr ->
-        Right $
-          Network.Plan9Hask.Msg.Tversion
-            { Network.Plan9Hask.Msg.mSize = convertLeWord32 msgBytes [3, 4, 5, 6],
-              Network.Plan9Hask.Msg.version = versionStr,
-              Network.Plan9Hask.Msg.tag = tag.getTag
-            }
-      Left err -> Left err
 
 convertLeWord16 :: Data.ByteString.ByteString -> [Int] -> Data.Word.Word16
 convertLeWord16 = convertLe
@@ -75,7 +49,7 @@ convertLeWord32 = convertLe
 convertLeWord64 :: Data.ByteString.ByteString -> [Int] -> Data.Word.Word64
 convertLeWord64 = convertLe
 
-parseValidDataBytes :: Data.ByteString.ByteString -> Network.Plan9Hask.Msg.ByteCount -> Either ParseError Data.ByteString.ByteString
+parseValidDataBytes :: Data.ByteString.ByteString -> Msg.ByteCount -> Either ParseError Data.ByteString.ByteString
 parseValidDataBytes msgBytes expectedByteCount =
   let expectedByteCountInt = fromIntegral @Data.Word.Word32 @Int expectedByteCount.getByteCount -- Possible overflow
       dataBytes = Data.ByteString.take expectedByteCountInt msgBytes
@@ -92,13 +66,13 @@ convertLe byteStr indices = go (zeroBits @a) 0 indices
         castByte = fromIntegral @Data.Word.Word8 @a (Data.ByteString.index byteStr idx)
     go bits _ [] = bits
 
-parseTag :: Data.ByteString.ByteString -> Network.Plan9Hask.Msg.Tag
-parseTag msgBytes = Network.Plan9Hask.Msg.Tag $ firstByte .|. secondByte
+parseTag :: Data.ByteString.ByteString -> Msg.Tag
+parseTag msgBytes = Msg.Tag $ firstByte .|. secondByte
   where
     firstByte :: Data.Word.Word16 = fromIntegral (Data.ByteString.index msgBytes 1)
     secondByte :: Data.Word.Word16 = fromIntegral (Data.ByteString.index msgBytes 2) `shift` 8
 
-parsePlan9StrArray :: Data.ByteString.ByteString -> Network.Plan9Hask.Msg.ArrayElementCount -> Either ParseError [Data.Text.Text]
+parsePlan9StrArray :: Data.ByteString.ByteString -> Msg.ArrayElementCount -> Either ParseError [Data.Text.Text]
 parsePlan9StrArray msgBytes elementCount =
   case strArrayResult of
     (Right elems) | (length elems /= (fromIntegral elementCount.getArrayElementCount)) -> Left ElementCountMismatch
@@ -141,3 +115,56 @@ parsePlan9VarArgWithRemainder byteStr
               { parsedElement = strBytes,
                 remainder = (Data.ByteString.drop (2 + strSize) byteStr)
               }
+
+statPreQidElementSize :: Int
+statPreQidElementSize =
+  Msg.varArgByteCountSize
+    + Msg.statTypeSize
+    + Msg.statDevSize
+
+statFixedElementSize :: Int
+statFixedElementSize =
+  statPreQidElementSize
+    + Msg.qidSize
+    + Msg.permissionsSize
+    + (Msg.epochSecondsSize * 2)
+    + Msg.offsetSize
+
+statSize :: Int
+statSize = statFixedElementSize + (Msg.varArgByteCountSize * 4)
+
+parseStat :: Data.ByteString.ByteString -> Either ParseError Msg.Stat
+parseStat msgBytes = fmap (\res -> res.parsedElement) (parseStatWithRemainder msgBytes)
+
+parseStatWithRemainder :: Data.ByteString.ByteString -> Either ParseError (ParseResult Msg.Stat)
+parseStatWithRemainder msgBytes
+  | Data.ByteString.length msgBytes < statSize = Left OutOfBytes
+  | otherwise = do
+      let size = Msg.VarArgByteCount $ convertLeWord16 msgBytes [0, 1]
+          statType = convertLeWord16 msgBytes [2, 3]
+          statDev = convertLeWord32 msgBytes [4, 5, 6, 7]
+          qidStart = Data.ByteString.drop statPreQidElementSize msgBytes
+          qid = Msg.Qid $ Data.ByteString.take Msg.qidSize qidStart
+          afterQidEnd = Data.ByteString.drop Msg.qidSize qidStart
+          mode = Msg.Permissions $ convertLeWord32 afterQidEnd [0, 1, 2, 3]
+          atime = Msg.EpochSeconds $ convertLeWord32 afterQidEnd [4, 5, 6, 7]
+          mtime = Msg.EpochSeconds $ convertLeWord32 afterQidEnd [8, 9, 10, 11]
+          fileLength = Msg.Offset $ convertLeWord64 msgBytes [12, 13, 14, 15, 16, 17, 18, 19]
+          varData = Data.ByteString.drop statFixedElementSize msgBytes
+      fileNameResult <- parsePlan9StrWithRemainder varData
+      uidResult <- parsePlan9StrWithRemainder fileNameResult.remainder
+      gidResult <- parsePlan9StrWithRemainder uidResult.remainder
+      muidResult <- parsePlan9StrWithRemainder gidResult.remainder
+      return $
+        ParseResult
+          { parsedElement =
+              Msg.Stat
+                { fileName = fileNameResult.parsedElement,
+                  uid = uidResult.parsedElement,
+                  gid = gidResult.parsedElement,
+                  muid = muidResult.parsedElement,
+                  length = fileLength,
+                  ..
+                },
+            remainder = muidResult.remainder
+          }
