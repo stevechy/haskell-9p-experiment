@@ -1,9 +1,12 @@
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Network.Plan9Hask.Msg where
 
 import Data.Text qualified
 import Data.Word qualified
+import Data.Bits qualified
 import Data.ByteString qualified
 
 newtype MessageType = MessageType {getMsgType :: Data.Word.Word8}
@@ -70,10 +73,24 @@ tOpenfd = MessageType 98
 
 rOpenfd = MessageType 99
 
+dirQidType :: Data.Word.Word8
+dirQidType = 0X80
+
+appendOnlyQidType :: Data.Word.Word8
+appendOnlyQidType = 0X40
+
+exclusiveUseQidType :: Data.Word.Word8
+exclusiveUseQidType = 0X20
+
+temporaryQidType :: Data.Word.Word8
+temporaryQidType = 0X04
+
 newtype Tag = Tag {getTag :: Data.Word.Word16} deriving Show
 
 newtype Fid = Fid {getFid :: Data.Word.Word32} deriving Show
 newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
+
+noAuthFid = AuthFid $ Data.Bits.complement $ fromIntegral @Int @Data.Word.Word32 0
 newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
 newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
 
