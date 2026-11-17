@@ -95,6 +95,8 @@ newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
 newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
 
 newtype ArrayElementCount = ArrayElementCount { getArrayElementCount :: Data.Word.Word16 } deriving Show
+arrayElementCountSize :: Int
+arrayElementCountSize = 2
 
 newtype ByteCount = ByteCount { getByteCount :: Data.Word.Word32 } deriving Show
 byteCountSize :: Int

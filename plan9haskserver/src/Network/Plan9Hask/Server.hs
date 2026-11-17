@@ -22,7 +22,7 @@ import Data.Word qualified
 import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.Parser qualified
 import Network.Plan9Hask.Builder qualified
-import Network.Plan9Hask.Msg qualified
+import Network.Plan9Hask.Msg qualified as Msg
 import Network.Socket qualified
 import Network.Socket.ByteString qualified
 import Network.Socket.ByteString.Lazy qualified
@@ -70,7 +70,7 @@ minimalHandler sock =
   let
       rootDirQidPath :: [Data.Word.Word8]
       rootDirQidPath = [0,0,0,0,0,0,0,7]
-      rootQid = Network.Plan9Hask.Msg.Qid $ Data.ByteString.pack $ concat [[Network.Plan9Hask.Msg.dirQidType], [0,0,0,0], rootDirQidPath]
+      rootQid = Msg.Qid $ Data.ByteString.pack $ concat [[Msg.dirQidType], [0,0,0,0], rootDirQidPath]
       sendResponse bStrBuilder = Network.Socket.ByteString.Lazy.sendAll sock (Data.ByteString.Builder.toLazyByteString bStrBuilder)
       handleTVersion tag mSize version = do
         Data.Text.IO.putStrLn $
@@ -90,7 +90,12 @@ minimalHandler sock =
                                                         (Data.Text.pack $ show tag),
                                                         " m "]
             sendResponse $ Network.Plan9Hask.Builder.rAttachMsgBuilder tag rootQid
-      handleTWalk tag fid newFid walkNameCount walkNames = Data.Text.IO.putStrLn $ Data.Text.concat ["tWalk"]
+      handleTWalk :: Msg.Tag -> Msg.Fid -> Msg.Fid -> Msg.ArrayElementCount -> [Data.Text.Text] -> IO ()
+      handleTWalk tag fid newFid walkNameCount walkNames = do
+            Data.Text.IO.putStrLn $ Data.Text.concat ["tWalk"]
+            if walkNameCount.getArrayElementCount == 0
+                then sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
+                else return ()
       handleTOpen tag fid openMode = Data.Text.IO.putStrLn $ Data.Text.concat ["tOpen"]
       handleTCreate tag fid fileName permissions mode = Data.Text.IO.putStrLn $ Data.Text.concat ["tCreate"]
       handleTRead tag fid offset readByteCount = Data.Text.IO.putStrLn $ Data.Text.concat ["tRead"]

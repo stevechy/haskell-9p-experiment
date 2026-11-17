@@ -57,6 +57,18 @@ rAttachMsgBuilder mTag qid =
             where
             size :: Data.Word.Word32 = fromIntegral $ Msg.byteCountSize + Msg.messageTypeAndTagSize + Msg.qidSize
 
+rWalkMsgBuilder :: Msg.Tag -> [Msg.Qid] -> Data.ByteString.Builder.Builder
+rWalkMsgBuilder tag walkQids =
+    (msgWithHeader size Msg.rWalk tag)
+        <> (Data.ByteString.Builder.word16LE (fromIntegral walkQidsLength)) -- Possible overflow
+        <> (mconcat (map (\ walkQid -> Data.ByteString.Builder.byteString walkQid.getQid) walkQids))
+            where
+            walkQidsLength = length walkQids
+            size :: Data.Word.Word32 = fromIntegral $ Msg.byteCountSize +
+                Msg.messageTypeAndTagSize +
+                Msg.arrayElementCountSize +
+                (walkQidsLength * Msg.qidSize)
+
 qidBuilder :: Msg.Qid -> Data.ByteString.Builder.Builder
 qidBuilder aQid = Data.ByteString.Builder.byteString aQid.getQid
 
