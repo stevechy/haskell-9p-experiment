@@ -87,7 +87,7 @@ temporaryQidType = 0X04
 
 newtype Tag = Tag {getTag :: Data.Word.Word16} deriving Show
 
-newtype Fid = Fid {getFid :: Data.Word.Word32} deriving Show
+newtype Fid = Fid {getFid :: Data.Word.Word32} deriving (Show, Eq, Ord)
 newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
 
 noAuthFid = AuthFid $ Data.Bits.complement $ fromIntegral @Int @Data.Word.Word32 0

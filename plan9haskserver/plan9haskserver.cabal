@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Network.Plan9Hask.MinimalHandler
       Network.Plan9Hask.Server
   other-modules:
       Paths_plan9haskserver
@@ -40,6 +41,7 @@ library
     , attoparsec
     , base >=4.7 && <5
     , bytestring
+    , containers
     , dhall
     , network
     , plan9haskshared
@@ -61,6 +63,7 @@ executable plan9haskserver-exe
       async
     , base >=4.7 && <5
     , bytestring
+    , containers
     , dhall
     , network
     , plan9haskserver
@@ -83,6 +86,7 @@ test-suite plan9haskserver-test
       async
     , base >=4.7 && <5
     , bytestring
+    , containers
     , dhall
     , network
     , plan9haskserver

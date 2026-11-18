@@ -26,6 +26,7 @@ dependencies:
 - async
 - dhall
 - text
+- containers
 
 ghc-options:
 - -Wall

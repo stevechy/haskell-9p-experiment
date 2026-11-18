@@ -42,6 +42,14 @@ rVersionMsgBuilder mTag mSize =
         where
           size :: Data.Word.Word32 = fromIntegral $ 4 + 1 + 2 + 4 + (Data.ByteString.length versionPlan9Str)
 
+rErrorMsgBuilder :: Msg.Tag -> Data.Text.Text -> Data.ByteString.Builder.Builder
+rErrorMsgBuilder mTag errorName =
+    (msgWithHeader size Msg.rError mTag)
+        <> Data.ByteString.Builder.byteString errorNamePlan9Str
+            where
+            errorNamePlan9Str = plan9Str errorName
+            size :: Data.Word.Word32 = fromIntegral $ 4 + 1 + 2 + (Data.ByteString.length errorNamePlan9Str)
+
 rAuthMsgBuilder :: Msg.Tag -> Msg.Qid -> Data.ByteString.Builder.Builder
 rAuthMsgBuilder mTag aQid =
     (msgWithHeader size Msg.rAuth mTag)
