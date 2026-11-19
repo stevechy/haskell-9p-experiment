@@ -27,6 +27,7 @@ import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified
 import Network.Socket qualified
 import Network.Socket.ByteString qualified
+import Data.List (intercalate, intersperse)
 
 openServerSocket :: Network.Socket.AddrInfo -> IO (Network.Socket.Socket)
 openServerSocket addr = Control.Exception.bracketOnError
@@ -41,8 +42,10 @@ openServerSocket addr = Control.Exception.bracketOnError
 
 showParser :: Network.Plan9Hask.HandlerParser.Plan9Callback Data.Text.Text
 showParser =
-  let handleTVersion tag mSize version =
-        Data.Text.concat
+  let
+      buildText = Data.Text.concat . (intersperse " ")
+      handleTVersion tag mSize version =
+        buildText
           [ "tVersion ",
             (Data.Text.show $ tag),
             " m ",
@@ -51,70 +54,94 @@ showParser =
             (Data.Text.show $ version)
           ]
       handleTAuth tag authFid username attachName =
-        Data.Text.concat
+        buildText
           [ "tAuth ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ authFid),
+            (Data.Text.show $ username),
+            (Data.Text.show $ attachName)
           ]
       handleTFlush tag oldTag =
-        Data.Text.concat
+        buildText
           [ "tFlush ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ oldTag)
           ]
       handleTAttach tag fid authFid username attachName =
-        Data.Text.concat
+        buildText
           [ "tAttach ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid),
+            (Data.Text.show $ authFid),
+            (Data.Text.show $ username),
+            (Data.Text.show $ attachName)
           ]
       handleTWalk tag fid newFid walkNameCount walkNames =
-        Data.Text.concat
+        buildText
           [ "tWalk ",
             (Data.Text.show tag),
             (Data.Text.show fid),
+            (Data.Text.show walkNameCount),
             (Data.Text.show walkNames),
             (Data.Text.show newFid)
           ]
       handleTOpen tag fid openMode =
-        Data.Text.concat
+        buildText
           [ "tOpen ",
             (Data.Text.show $ tag),
             (Data.Text.show $ fid),
             (Data.Text.show $ openMode)
           ]
       handleTCreate tag fid fileName permissions mode =
-        Data.Text.concat
+        buildText
           [ "tCreate ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid),
+            (Data.Text.show $ fileName),
+            (Data.Text.show $ permissions),
+            (Data.Text.show $ mode)
           ]
       handleTRead tag fid offset readByteCount =
-        Data.Text.concat
+        buildText
           [ "tRead ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid),
+            (Data.Text.show $ offset),
+            (Data.Text.show $ readByteCount)
           ]
       handleTWrite tag fid offset writeByteCount writeData =
-        Data.Text.concat
+        buildText
           [ "tWrite ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid),
+            (Data.Text.show $ offset),
+            (Data.Text.show $ writeByteCount)
           ]
       handleTClunk tag fid =
-        Data.Text.concat
+        buildText
           [ "tClunk ",
             (Data.Text.show $ tag),
             (Data.Text.show $ fid)
           ]
       handleTRemove tag fid =
-        Data.Text.concat
+        buildText
           [ "tRemove ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid)
           ]
       handleTStat tag fid =
-        Data.Text.concat
+        buildText
           [ "tStat ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid)
           ]
       handleTWstat tag fid statByteCount stat =
-        Data.Text.concat
+        buildText
           [ "tWStat ",
-            (Data.Text.show $ tag)
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid),
+            (Data.Text.show $ statByteCount),
+            (Data.Text.show $ stat)
           ]
       handleParseError err = Data.Text.concat ["Parse error ", Data.Text.show $ err]
    in Network.Plan9Hask.HandlerParser.Plan9Callback {..}

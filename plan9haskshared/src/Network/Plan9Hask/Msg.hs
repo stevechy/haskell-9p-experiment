@@ -85,44 +85,42 @@ exclusiveUseQidType = 0X20
 temporaryQidType :: Data.Word.Word8
 temporaryQidType = 0X04
 
-dirPermissionMarker :: Data.Word.Word32
-dirPermissionMarker = 0x80000000
+dirPermissionMarker :: Permissions
+dirPermissionMarker = Permissions $ 0x80000000
 
-readPermission :: Data.Word.Word32
-readPermission = 4
+readPermission :: Permissions
+readPermission = Permissions $ 4
 
-writePermission :: Data.Word.Word32
-writePermission = 2
+writePermission :: Permissions
+writePermission = Permissions $ 2
 
-executePermission :: Data.Word.Word32
-executePermission = 1
+executePermission :: Permissions
+executePermission = Permissions $ 1
 
-readWritePermission :: Data.Word.Word32
-readWritePermission = readPermission Data.Bits..|. writePermission
+ownerPermission :: Permissions -> Permissions
+ownerPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` 16
 
-ownerPermission :: Data.Word.Word32 -> Data.Word.Word32
-ownerPermission perm = perm `Data.Bits.shift` 16
+groupPermission :: Permissions -> Permissions
+groupPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` 8
 
-groupPermission :: Data.Word.Word32 -> Data.Word.Word32
-groupPermission perm = perm `Data.Bits.shift` 8
-
-othersPermission :: Data.Word.Word32 -> Data.Word.Word32
+othersPermission :: Permissions -> Permissions
 othersPermission perm = perm
 
 worldReadblePermission :: Permissions
-worldReadblePermission = Permissions $
-    (ownerPermission readPermission) Data.Bits..|.
-    (groupPermission readPermission) Data.Bits..|.
+worldReadblePermission =
+    (ownerPermission readPermission) <>
+    (groupPermission readPermission) <>
     (othersPermission readPermission)
 
 directoryPermission :: Permissions -> Permissions
-directoryPermission perm = Permissions $ dirPermissionMarker Data.Bits..|. perm.getPermissions
+directoryPermission perm =  dirPermissionMarker <> perm
 
 newtype Tag = Tag {getTag :: Data.Word.Word16} deriving Show
 
 newtype Fid = Fid {getFid :: Data.Word.Word32} deriving (Show, Eq, Ord)
 newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
 
+noAuthFid :: AuthFid
 noAuthFid = AuthFid $ Data.Bits.complement $ fromIntegral @Int @Data.Word.Word32 0
 newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
 newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
@@ -139,21 +137,27 @@ newtype VarArgByteCount = VarArgByteCount { getVarArgByteCount:: Data.Word.Word1
 varArgByteCountSize :: Int
 varArgByteCountSize = 2
 
-newtype EpochSeconds = EpochSeconds { getEpochSeconds :: Data.Word.Word32 } deriving Show
+newtype EpochSeconds = EpochSeconds { getEpochSeconds :: Data.Word.Word32 } deriving (Show, Eq)
 epochSecondsSize :: Int
 epochSecondsSize = 4
 
-newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving Show
+newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving (Show, Eq)
 qidSize :: Int
 qidSize = 13
 
 newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
 newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show
-newtype Permissions = Permissions {getPermissions:: Data.Word.Word32 } deriving Show
+newtype Permissions = Permissions {getPermissions:: Data.Word.Word32 } deriving (Show, Eq)
 permissionsSize :: Int
 permissionsSize = 4
 
-newtype Offset = Offset { getOffset:: Data.Word.Word64 } deriving Show
+instance Semigroup Permissions where
+    (<>) = (\x y -> Permissions $ x.getPermissions Data.Bits..|. y.getPermissions)
+
+instance Monoid Permissions where
+    mempty = Permissions $ 0
+
+newtype Offset = Offset { getOffset:: Data.Word.Word64 } deriving (Show, Eq)
 offsetSize :: Int
 offsetSize = 8
 
@@ -169,7 +173,7 @@ data Stat = Stat {
     uid :: Data.Text.Text,
     gid :: Data.Text.Text,
     muid :: Data.Text.Text
-}
+} deriving (Show, Eq)
 
 statTypeSize :: Int
 statTypeSize = 2

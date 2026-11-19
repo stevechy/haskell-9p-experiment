@@ -19,14 +19,10 @@ import Data.Text qualified
 import Data.Text.IO qualified
 import Data.Word qualified
 import Network.Plan9Hask.Builder qualified
-import Network.Plan9Hask.HandlerParser (Plan9Callback (Plan9Callback))
 import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Socket qualified
-import Network.Socket.ByteString qualified
 import Network.Socket.ByteString.Lazy qualified
-import qualified Network.Plan9Hask.Builder
-import qualified Network.Plan9Hask.Builder
 
 data FidState
   = AttachedFid
@@ -170,15 +166,6 @@ newHandler sock = do
   let defaultIoUnitByteCount = Msg.ByteCount $ 4096
       sendResponse bStrBuilder = Network.Socket.ByteString.Lazy.sendAll sock (Data.ByteString.Builder.toLazyByteString bStrBuilder)
       handleTVersion tag mSize version = do
-        Data.Text.IO.putStrLn $
-          Data.Text.concat
-            [ "tVersion ",
-              (Data.Text.pack $ show tag),
-              " m ",
-              (Data.Text.pack $ show mSize),
-              " v ",
-              (Data.Text.pack $ show version)
-            ]
         sendResponse $ Network.Plan9Hask.Builder.rVersionMsgBuilder tag (min mSize 8192)
       handleTAuth tag authFid username attachName =
         Data.Text.IO.putStrLn $
@@ -193,32 +180,24 @@ newHandler sock = do
               (Data.Text.pack $ show tag)
             ]
       handleTAttach tag fid authFid username attachName = do
-        Data.Text.IO.putStrLn $
-          Data.Text.concat
-            [ "tAttach ",
-              (Data.Text.pack $ show tag)
-            ]
         attachResult <- attachFid fidState fid
         case attachResult of
           (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
           (Right _) -> sendResponse $ Network.Plan9Hask.Builder.rAttachMsgBuilder tag rootQid
       handleTWalk :: Msg.Tag -> Msg.Fid -> Msg.Fid -> Msg.ArrayElementCount -> [Data.Text.Text] -> IO ()
       handleTWalk tag fid newFid _walkNameCount walkNames = do
-        Data.Text.IO.putStrLn $ Data.Text.concat ["tWalk"]
         walkResult <- walkFid fidState fid walkNames newFid
         case walkResult of
           (Right attachedNewFid) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
           (Left PathDoesNotExist) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
           (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
       handleTOpen tag fid openMode = do
-        Data.Text.IO.putStrLn $ Data.Text.concat ["tOpen"]
         openResult <- openFid fidState fid openMode
         case openResult of
           (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
           (Right _) -> sendResponse $ Network.Plan9Hask.Builder.rOpenMsgBuilder tag rootQid defaultIoUnitByteCount
       handleTCreate tag fid fileName permissions mode = Data.Text.IO.putStrLn $ Data.Text.concat ["tCreate"]
       handleTRead tag fid offset readByteCount = do
-        Data.Text.IO.putStrLn $ Data.Text.concat ["tRead"]
         readOkResult <- readFid fidState fid
         case readOkResult of
           (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
@@ -232,7 +211,6 @@ newHandler sock = do
             (Right _) -> sendResponse $ Network.Plan9Hask.Builder.rClunkMsgBuilder tag
       handleTRemove tag fid = Data.Text.IO.putStrLn $ Data.Text.concat ["tRemove"]
       handleTStat tag fid = do
-        Data.Text.IO.putStrLn $ Data.Text.concat ["tStat"]
         readFidState <- Data.IORef.readIORef fidState
         case Data.Map.lookup fid readFidState.fids of
             Just (attachedFid@AttachedFid{} : _) | attachedFid.path == [] -> sendResponse $ Network.Plan9Hask.Builder.rStatMsgBuilder tag (rootDirStat rootQid)
