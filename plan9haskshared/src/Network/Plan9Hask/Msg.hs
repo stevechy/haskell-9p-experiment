@@ -85,6 +85,39 @@ exclusiveUseQidType = 0X20
 temporaryQidType :: Data.Word.Word8
 temporaryQidType = 0X04
 
+dirPermissionMarker :: Data.Word.Word32
+dirPermissionMarker = 0x80000000
+
+readPermission :: Data.Word.Word32
+readPermission = 4
+
+writePermission :: Data.Word.Word32
+writePermission = 2
+
+executePermission :: Data.Word.Word32
+executePermission = 1
+
+readWritePermission :: Data.Word.Word32
+readWritePermission = readPermission Data.Bits..|. writePermission
+
+ownerPermission :: Data.Word.Word32 -> Data.Word.Word32
+ownerPermission perm = perm `Data.Bits.shift` 16
+
+groupPermission :: Data.Word.Word32 -> Data.Word.Word32
+groupPermission perm = perm `Data.Bits.shift` 8
+
+othersPermission :: Data.Word.Word32 -> Data.Word.Word32
+othersPermission perm = perm
+
+worldReadblePermission :: Permissions
+worldReadblePermission = Permissions $
+    (ownerPermission readPermission) Data.Bits..|.
+    (groupPermission readPermission) Data.Bits..|.
+    (othersPermission readPermission)
+
+directoryPermission :: Permissions -> Permissions
+directoryPermission perm = Permissions $ dirPermissionMarker Data.Bits..|. perm.getPermissions
+
 newtype Tag = Tag {getTag :: Data.Word.Word16} deriving Show
 
 newtype Fid = Fid {getFid :: Data.Word.Word32} deriving (Show, Eq, Ord)
@@ -125,7 +158,6 @@ offsetSize :: Int
 offsetSize = 8
 
 data Stat = Stat {
-    size :: VarArgByteCount,
     statType :: Data.Word.Word16,
     statDev :: Data.Word.Word32,
     qid :: Qid,

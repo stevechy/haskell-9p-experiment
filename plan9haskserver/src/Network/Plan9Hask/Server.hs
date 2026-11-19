@@ -14,19 +14,19 @@ import Control.Monad qualified
 import Data.Attoparsec.ByteString qualified
 import Data.ByteString qualified
 import Data.ByteString.Builder qualified
+import Data.IORef qualified
 import Data.Int
 import Data.List.NonEmpty qualified
 import Data.Text qualified
 import Data.Text.IO qualified
-import Data.IORef qualified
 import Data.Word qualified
 import Network.Plan9Hask.Builder qualified
 import Network.Plan9Hask.HandlerParser qualified
+import Network.Plan9Hask.MinimalHandler qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified
 import Network.Socket qualified
 import Network.Socket.ByteString qualified
-import Network.Plan9Hask.MinimalHandler qualified
 
 openServerSocket :: Network.Socket.AddrInfo -> IO (Network.Socket.Socket)
 openServerSocket addr = Control.Exception.bracketOnError
@@ -44,25 +44,79 @@ showParser =
   let handleTVersion tag mSize version =
         Data.Text.concat
           [ "tVersion ",
-            (Data.Text.pack $ show tag),
+            (Data.Text.show $ tag),
             " m ",
-            (Data.Text.pack $ show mSize),
+            (Data.Text.show $ mSize),
             " v ",
-            (Data.Text.pack $ show version)
+            (Data.Text.show $ version)
           ]
-      handleTAuth tag authFid username attachName = Data.Text.concat ["tAuth"]
-      handleTFlush tag oldTag = Data.Text.concat ["tFlush"]
-      handleTAttach tag fid authFid username attachName = Data.Text.concat ["tAttach"]
-      handleTWalk tag fid newFid walkNameCount walkNames = Data.Text.concat ["tWalk"]
-      handleTOpen tag fid openMode = Data.Text.concat ["tOpen"]
-      handleTCreate tag fid fileName permissions mode = Data.Text.concat ["tCreate"]
-      handleTRead tag fid offset readByteCount = Data.Text.concat ["tRead"]
-      handleTWrite tag fid offset writeByteCount writeData = Data.Text.concat ["tWrite"]
-      handleTClunk tag fid = Data.Text.concat ["tClunk"]
-      handleTRemove tag fid = Data.Text.concat ["tRemove"]
-      handleTStat tag fid = Data.Text.concat ["tStat"]
-      handleTWstat tag fid statByteCount stat = Data.Text.concat ["tWStat"]
-      handleParseError err = Data.Text.concat ["Parse error ", Data.Text.pack $ show err]
+      handleTAuth tag authFid username attachName =
+        Data.Text.concat
+          [ "tAuth ",
+            (Data.Text.show $ tag)
+          ]
+      handleTFlush tag oldTag =
+        Data.Text.concat
+          [ "tFlush ",
+            (Data.Text.show $ tag)
+          ]
+      handleTAttach tag fid authFid username attachName =
+        Data.Text.concat
+          [ "tAttach ",
+            (Data.Text.show $ tag)
+          ]
+      handleTWalk tag fid newFid walkNameCount walkNames =
+        Data.Text.concat
+          [ "tWalk ",
+            (Data.Text.show tag),
+            (Data.Text.show fid),
+            (Data.Text.show walkNames),
+            (Data.Text.show newFid)
+          ]
+      handleTOpen tag fid openMode =
+        Data.Text.concat
+          [ "tOpen ",
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid),
+            (Data.Text.show $ openMode)
+          ]
+      handleTCreate tag fid fileName permissions mode =
+        Data.Text.concat
+          [ "tCreate ",
+            (Data.Text.show $ tag)
+          ]
+      handleTRead tag fid offset readByteCount =
+        Data.Text.concat
+          [ "tRead ",
+            (Data.Text.show $ tag)
+          ]
+      handleTWrite tag fid offset writeByteCount writeData =
+        Data.Text.concat
+          [ "tWrite ",
+            (Data.Text.show $ tag)
+          ]
+      handleTClunk tag fid =
+        Data.Text.concat
+          [ "tClunk ",
+            (Data.Text.show $ tag),
+            (Data.Text.show $ fid)
+          ]
+      handleTRemove tag fid =
+        Data.Text.concat
+          [ "tRemove ",
+            (Data.Text.show $ tag)
+          ]
+      handleTStat tag fid =
+        Data.Text.concat
+          [ "tStat ",
+            (Data.Text.show $ tag)
+          ]
+      handleTWstat tag fid statByteCount stat =
+        Data.Text.concat
+          [ "tWStat ",
+            (Data.Text.show $ tag)
+          ]
+      handleParseError err = Data.Text.concat ["Parse error ", Data.Text.show $ err]
    in Network.Plan9Hask.HandlerParser.Plan9Callback {..}
 
 data HandlerState
@@ -77,9 +131,9 @@ handler :: Network.Socket.Socket -> IO ()
 handler sock = runHandler
   where
     runHandler = do
-        msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
-        go sock msgHandler (FreshParse {buffer = Data.ByteString.empty})
-    go :: Network.Socket.Socket -> Network.Plan9Hask.HandlerParser.Plan9Callback ( IO ()) -> HandlerState -> IO ()
+      msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
+      go sock msgHandler (FreshParse {buffer = Data.ByteString.empty})
+    go :: Network.Socket.Socket -> Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()) -> HandlerState -> IO ()
     go socket msgHandler handlerState = do
       putStrLn "Handling"
       msg <- Network.Socket.ByteString.recv socket 512

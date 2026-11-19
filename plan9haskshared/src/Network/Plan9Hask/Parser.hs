@@ -140,7 +140,7 @@ parseStatWithRemainder :: Data.ByteString.ByteString -> Either ParseError (Parse
 parseStatWithRemainder msgBytes
   | Data.ByteString.length msgBytes < statSize = Left OutOfBytes
   | otherwise = do
-      let size = Msg.VarArgByteCount $ convertLeWord16 msgBytes [0, 1]
+      let _size = Msg.VarArgByteCount $ convertLeWord16 msgBytes [0, 1]
           statType = convertLeWord16 msgBytes [2, 3]
           statDev = convertLeWord32 msgBytes [4, 5, 6, 7]
           qidStart = Data.ByteString.drop statPreQidElementSize msgBytes
