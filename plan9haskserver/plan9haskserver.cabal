@@ -25,6 +25,8 @@ source-repository head
 
 library
   exposed-modules:
+      Network.Plan9Hask.Error
+      Network.Plan9Hask.MapFsHandler
       Network.Plan9Hask.MinimalHandler
       Network.Plan9Hask.Server
   other-modules:

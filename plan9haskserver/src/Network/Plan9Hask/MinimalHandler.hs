@@ -23,6 +23,7 @@ import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Socket qualified
 import Network.Socket.ByteString.Lazy qualified
+import Network.Plan9Hask.Error
 
 data FidState
   = AttachedFid
@@ -39,8 +40,6 @@ data HandlerState = HandlerState
     rootDirQidPath :: [Data.Word.Word8],
     rootDirQidVersion :: [Data.Word.Word8]
   }
-
-data Error = FidInUse | FidAlreadyOpen | FidNotAttached | FidNotOpen | FidUnexpectedReadError | PathDoesNotExist deriving (Show, Eq)
 
 fidInUse :: FidState -> Bool
 fidInUse (AttachedFid {}) = True

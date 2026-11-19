@@ -141,9 +141,15 @@ newtype EpochSeconds = EpochSeconds { getEpochSeconds :: Data.Word.Word32 } deri
 epochSecondsSize :: Int
 epochSecondsSize = 4
 
-newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving (Show, Eq)
+newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving (Show, Ord, Eq)
 qidSize :: Int
 qidSize = 13
+
+newtype QidPath = QidPath { getQidPath :: Data.ByteString.ByteString } deriving (Show, Ord, Eq)
+
+
+qidPathFromQid :: Qid -> QidPath
+qidPathFromQid qid = QidPath $  Data.ByteString.take 8 $ Data.ByteString.drop 5 qid.getQid
 
 newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
 newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show
