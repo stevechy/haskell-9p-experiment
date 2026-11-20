@@ -72,7 +72,7 @@ walkFid fidState fid walkNames newFid = do
           (Just (AttachedFid {} : fidList)) | newFid == fid ->
             case resolve currentHandler resultPath of
               Just _qid -> (currentHandler {fids = Data.Map.insert newFid (attachedFid : fidList) currentHandler.fids}, Right attachedFid)
-              Nothing -> (currentHandler, Left PathDoesNotExist)
+              Nothing -> (currentHandler, Left NoPathEntry)
             where
               resultPath = (currentFid.path ++ walkNames)
               attachedFid = AttachedFid {path = resultPath}
@@ -80,7 +80,7 @@ walkFid fidState fid walkNames newFid = do
           (result) ->
             case resolve currentHandler resultPath of
               Just _qid -> (currentHandler {fids = Data.Map.insert newFid (attachedFid : fidList) currentHandler.fids}, Right attachedFid)
-              Nothing -> (currentHandler, Left PathDoesNotExist)
+              Nothing -> (currentHandler, Left NoPathEntry)
             where
               resultPath = (currentFid.path ++ walkNames)
               fidList = maybe [] id result
@@ -188,7 +188,7 @@ newHandler sock = do
         walkResult <- walkFid fidState fid walkNames newFid
         case walkResult of
           (Right attachedNewFid) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
-          (Left PathDoesNotExist) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
+          (Left NoPathEntry) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
           (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
       handleTOpen tag fid openMode = do
         openResult <- openFid fidState fid openMode
@@ -213,7 +213,7 @@ newHandler sock = do
         readFidState <- Data.IORef.readIORef fidState
         case Data.Map.lookup fid readFidState.fids of
             Just (attachedFid@AttachedFid{} : _) | attachedFid.path == [] -> sendResponse $ Network.Plan9Hask.Builder.rStatMsgBuilder tag (rootDirStat rootQid)
-            Just (attachedFid@AttachedFid{} : _) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show PathDoesNotExist
+            Just (attachedFid@AttachedFid{} : _) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show NoPathEntry
             _ -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show FidNotAttached
       handleTWstat tag fid statByteCount stat = Data.Text.IO.putStrLn $ Data.Text.concat ["tWStat"]
       handleParseError err = Data.Text.IO.putStrLn $ Data.Text.concat ["Parse error ", Data.Text.pack $ show err]
