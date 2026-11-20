@@ -1,9 +1,9 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NoFieldSelectors #-}
-{-# LANGUAGE DuplicateRecordFields #-}
 
 module Network.Plan9Hask.MapFsHandler where
 
@@ -36,16 +36,26 @@ data FidState
       }
   | ClunkedFid {}
 
-data WalkedQidPath = WalkedQidPath { path :: Data.Text.Text, qidPath :: Msg.QidPath} deriving (Show, Eq, Ord)
+data WalkedQidPath = WalkedQidPath {path :: Data.Text.Text, qidPath :: Msg.QidPath} deriving (Show, Eq, Ord)
 
 data QidPath = RootQidPath | QidPath {qid :: Msg.QidPath} deriving (Show, Eq, Ord)
+
+data NodeStat = NodeStat
+  { mode :: Msg.Permissions,
+    atime :: Msg.EpochSeconds,
+    mtime :: Msg.EpochSeconds,
+    fileName :: Data.Text.Text,
+    uid :: Data.Text.Text,
+    gid :: Data.Text.Text,
+    muid :: Data.Text.Text
+  }
 
 data QidNode = FileNode {fileData :: Data.ByteString.ByteString} | DirNode {dirEntries :: Data.Map.Map Data.Text.Text Msg.QidPath}
 
 data HandlerState = HandlerState
   { fids :: Data.Map.Map Msg.Fid [FidState],
     qidNodes :: Data.Map.Map QidPath QidNode,
-    rootDirQidPath :: [Data.Word.Word8],
+    rootDirQidPath :: Msg.QidPath,
     rootDirQidVersion :: [Data.Word.Word8],
     lastQidPath :: Int64,
     maxMsgSize :: Int
@@ -58,21 +68,21 @@ fidInUse (ClunkedFid {}) = False
 
 resolve :: HandlerState -> [WalkedQidPath] -> [Data.Text.Text] -> Either (Error, [WalkedQidPath]) [WalkedQidPath]
 resolve handlerState currentPath walkNames = go [] currentPath walkNames
-    where
-        currentQidPath :: [WalkedQidPath] -> QidPath
-        currentQidPath (WalkedQidPath{..} : _) = QidPath qidPath
-        currentQidPath [] = RootQidPath
-        go :: [WalkedQidPath] -> [WalkedQidPath] -> [Data.Text.Text] -> Either (Error, [WalkedQidPath]) [WalkedQidPath]
-        go walkResult currentWalkPath (walkName : walkNames) =
-            do
-                qidNode <- maybe (Left (NoPathEntry, walkResult)) (Right) $ Data.Map.lookup (currentQidPath currentWalkPath) handlerState.qidNodes
-                walkQidPath <- case qidNode of
-                    (DirNode {..}) -> maybe (Left (NoPathEntry, walkResult)) (Right) $ Data.Map.lookup walkName dirEntries
-                    -- Implement ".."
-                    (_) -> Left (NoPathEntry, walkResult)
-                let newWalkPath = WalkedQidPath { path = walkName, qidPath = walkQidPath }
-                go (newWalkPath:walkResult) (newWalkPath:currentWalkPath) walkNames
-        go walkResult _currentWalkPath [] = Right walkResult
+  where
+    currentQidPath :: [WalkedQidPath] -> QidPath
+    currentQidPath (WalkedQidPath {..} : _) = QidPath qidPath
+    currentQidPath [] = RootQidPath
+    go :: [WalkedQidPath] -> [WalkedQidPath] -> [Data.Text.Text] -> Either (Error, [WalkedQidPath]) [WalkedQidPath]
+    go walkResult currentWalkPath (walkName : walkNames) =
+      do
+        qidNode <- maybe (Left (NoPathEntry, walkResult)) (Right) $ Data.Map.lookup (currentQidPath currentWalkPath) handlerState.qidNodes
+        walkQidPath <- case qidNode of
+          (DirNode {..}) -> maybe (Left (NoPathEntry, walkResult)) (Right) $ Data.Map.lookup walkName dirEntries
+          -- Implement ".."
+          (_) -> Left (NoPathEntry, walkResult)
+        let newWalkPath = WalkedQidPath {path = walkName, qidPath = walkQidPath}
+        go (newWalkPath : walkResult) (newWalkPath : currentWalkPath) walkNames
+    go walkResult _currentWalkPath [] = Right walkResult
 
 attachFid :: Data.IORef.IORef HandlerState -> Msg.Fid -> IO (Either Error FidState)
 attachFid fidState fid = do
@@ -85,7 +95,7 @@ attachFid fidState fid = do
         )
         where
           fidList = maybe [] id result
-          attachedFid = AttachedFid {walkedQidPath=[]}
+          attachedFid = AttachedFid {walkedQidPath = []}
 
 walkFid :: Data.IORef.IORef HandlerState -> Msg.Fid -> [Data.Text.Text] -> Msg.Fid -> IO (Either (Error, [WalkedQidPath]) [WalkedQidPath])
 walkFid fidState fid walkNames newFid = do
@@ -97,14 +107,16 @@ walkFid fidState fid walkNames newFid = do
             case resolve currentHandler currentFid.walkedQidPath walkNames of
               Right paths ->
                 (currentHandler {fids = Data.Map.insert newFid (attachedFid : fidList) currentHandler.fids}, Right paths)
-                where attachedFid = AttachedFid {walkedQidPath = currentFid.walkedQidPath ++ paths}
+                where
+                  attachedFid = AttachedFid {walkedQidPath = currentFid.walkedQidPath ++ paths}
               Left (err, partialWalkPath) -> (currentHandler, Left (err, partialWalkPath))
           (Just fidList) | (any fidInUse fidList) -> (currentHandler, Left (FidInUse, []))
           (result) ->
             case resolve currentHandler currentFid.walkedQidPath walkNames of
               Right paths ->
                 (currentHandler {fids = Data.Map.insert newFid (attachedFid : fidList) currentHandler.fids}, Right paths)
-                where attachedFid = AttachedFid {walkedQidPath = currentFid.walkedQidPath ++ paths}
+                where
+                  attachedFid = AttachedFid {walkedQidPath = currentFid.walkedQidPath ++ paths}
               Left (err, partialWalkPath) -> (currentHandler, Left (err, partialWalkPath))
             where
               fidList = maybe [] id result
@@ -178,18 +190,32 @@ rootDirStat qid =
       muid = "root"
     }
 
+buildQid :: Data.Word.Word8 -> [Data.Word.Word8] -> Msg.QidPath -> Msg.Qid
+buildQid qidType qidVersion qidPath = Msg.Qid $ Data.ByteString.concat [Data.ByteString.pack $ concat [[qidType], qidVersion], qidPath.getQidPath]
+
 newHandler :: Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()))
 newHandler sock = do
-  let rootDirQidPath :: [Data.Word.Word8]
-      rootDirQidPath = [7, 0, 0, 0, 0, 0, 0, 0]
+  let rootDirQidPath :: Msg.QidPath
+      rootDirQidPath = Msg.QidPath $ Data.ByteString.pack [7, 0, 0, 0, 0, 0, 0, 0]
       rootDirQidVersion :: [Data.Word.Word8]
       rootDirQidVersion = [1, 0, 0, 0]
-      rootQid = Msg.Qid $ Data.ByteString.pack $ concat [[Msg.dirQidType], rootDirQidVersion, rootDirQidPath]
-  fidState <- Data.IORef.newIORef $ HandlerState {fids = Data.Map.empty, rootDirQidPath = rootDirQidPath, rootDirQidVersion = rootDirQidVersion}
+      rootQid = buildQid Msg.dirQidType rootDirQidVersion rootDirQidPath
+  fidState <-
+    Data.IORef.newIORef $
+      HandlerState
+        { fids = Data.Map.empty,
+          qidNodes = Data.Map.empty,
+          rootDirQidPath = rootDirQidPath,
+          rootDirQidVersion = rootDirQidVersion,
+          lastQidPath = 1,
+          maxMsgSize = 512
+        }
   let defaultIoUnitByteCount = Msg.ByteCount $ 4096
       sendResponse bStrBuilder = Network.Socket.ByteString.Lazy.sendAll sock (Data.ByteString.Builder.toLazyByteString bStrBuilder)
       handleTVersion tag mSize version = do
-        sendResponse $ Network.Plan9Hask.Builder.rVersionMsgBuilder tag (min mSize 8192)
+        let msgSize = (min mSize 8192)
+        Data.IORef.atomicModifyIORef' fidState (\currentHandler -> (currentHandler {maxMsgSize = fromIntegral msgSize}, ())) -- Possible overflow
+        sendResponse $ Network.Plan9Hask.Builder.rVersionMsgBuilder tag msgSize
       handleTAuth tag authFid username attachName =
         Data.Text.IO.putStrLn $
           Data.Text.concat
@@ -213,7 +239,7 @@ newHandler sock = do
         case walkResult of
           (Right attachedNewFid) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
           (Left (err, [])) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
-          (Left (err, partialWalkPath)) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag (map (\p -> p.qidPath.qidPath) partialWalkPath)
+          (Left (err, partialWalkPath)) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag (map (\p -> buildQid 0 rootDirQidVersion p.qidPath) partialWalkPath)
       handleTOpen tag fid openMode = do
         openResult <- openFid fidState fid openMode
         case openResult of

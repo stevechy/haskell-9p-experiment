@@ -173,6 +173,8 @@ handler sock = runHandler
           putStrLn $ "Success" ++ (show parsedInt64)
           Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showParser msgBody
           Network.Plan9Hask.HandlerParser.handleMsgBody msgHandler msgBody
+          -- There could be more Done elements in the remainder.
+          -- These should be consumed before the next `recv`
           go socket msgHandler (FreshParse {buffer = remainder})
         (Data.Attoparsec.ByteString.Partial cont) -> do
           putStrLn $ "Partial"
