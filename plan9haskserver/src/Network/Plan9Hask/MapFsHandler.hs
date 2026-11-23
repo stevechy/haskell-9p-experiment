@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -47,10 +48,23 @@ data NodeStat = NodeStat
     fileName :: Data.Text.Text,
     uid :: Data.Text.Text,
     gid :: Data.Text.Text,
-    muid :: Data.Text.Text
+    muid :: Data.Text.Text,
+    qidVersion :: [Data.Word.Word8]
   }
 
-data QidNode = FileNode {fileData :: Data.ByteString.ByteString} | DirNode {dirEntries :: Data.Map.Map Data.Text.Text Msg.QidPath}
+data QidNode
+  = FileNode
+      { fileData :: Data.ByteString.ByteString,
+        nodeStat :: NodeStat
+      }
+  | DirNode
+      { dirEntries :: Data.Map.Map Data.Text.Text Msg.QidPath,
+        nodeStat :: NodeStat
+      }
+
+qidNodeStat :: QidNode -> NodeStat
+qidNodeStat (FileNode {..}) = nodeStat
+qidNodeStat (DirNode {..}) = nodeStat
 
 data HandlerState = HandlerState
   { fids :: Data.Map.Map Msg.Fid [FidState],
@@ -190,6 +204,31 @@ rootDirStat qid =
       muid = "root"
     }
 
+qidNodeQidType :: QidNode -> Data.Word.Word8
+qidNodeQidType (FileNode {}) = Msg.fileQidType
+qidNodeQidType (DirNode {}) = Msg.dirQidType
+
+qidNodeStatMsg :: WalkedQidPath -> QidNode -> Msg.Stat
+qidNodeStatMsg walkedQidPath qidNode =
+  let nodeStat = qidNodeStat qidNode
+      qid = buildQid (qidNodeQidType qidNode) nodeStat.qidVersion walkedQidPath.qidPath
+      readByteCount = case qidNode of
+        (FileNode {..}) -> Data.ByteString.length fileData
+        (DirNode {..}) -> Msg.statDevSize * (Data.Map.size dirEntries) -- Stat is vararg because of uid,gid,muid
+   in Msg.Stat
+        { statType = 0,
+          statDev = 0,
+          qid = qid,
+          mode = nodeStat.mode,
+          length = Msg.Offset $ fromIntegral readByteCount,
+          fileName = walkedQidPath.path,
+          atime = nodeStat.atime,
+          mtime = nodeStat.mtime,
+          uid = nodeStat.uid,
+          gid = nodeStat.gid,
+          muid = nodeStat.muid
+        }
+
 buildQid :: Data.Word.Word8 -> [Data.Word.Word8] -> Msg.QidPath -> Msg.Qid
 buildQid qidType qidVersion qidPath = Msg.Qid $ Data.ByteString.concat [Data.ByteString.pack $ concat [[qidType], qidVersion], qidPath.getQidPath]
 
@@ -263,7 +302,10 @@ newHandler sock = do
         readFidState <- Data.IORef.readIORef fidState
         case Data.Map.lookup fid readFidState.fids of
           Just (attachedFid@AttachedFid {} : _) | attachedFid.walkedQidPath == [] -> sendResponse $ Network.Plan9Hask.Builder.rStatMsgBuilder tag (rootDirStat rootQid)
-          Just (attachedFid@AttachedFid {} : _) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show NoPathEntry
+          Just (attachedFid@AttachedFid {} : _) | walkedQidPath <- last attachedFid.walkedQidPath ->
+            case Data.Map.lookup (QidPath walkedQidPath.qidPath) (readFidState.qidNodes) of
+              (Just qidNode) -> sendResponse $ Network.Plan9Hask.Builder.rStatMsgBuilder tag (qidNodeStatMsg walkedQidPath qidNode)
+              Nothing -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show NoPathEntry
           _ -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show FidNotAttached
       handleTWstat tag fid statByteCount stat = Data.Text.IO.putStrLn $ Data.Text.concat ["tWStat"]
       handleParseError err = Data.Text.IO.putStrLn $ Data.Text.concat ["Parse error ", Data.Text.pack $ show err]

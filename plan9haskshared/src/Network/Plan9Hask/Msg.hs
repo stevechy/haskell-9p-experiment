@@ -76,6 +76,9 @@ rOpenfd = MessageType 99
 dirQidType :: Data.Word.Word8
 dirQidType = 0X80
 
+fileQidType :: Data.Word.Word8
+fileQidType = 0X00
+
 appendOnlyQidType :: Data.Word.Word8
 appendOnlyQidType = 0X40
 
