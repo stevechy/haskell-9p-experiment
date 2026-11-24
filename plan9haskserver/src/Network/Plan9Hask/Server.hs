@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NoFieldSelectors #-}
 
 module Network.Plan9Hask.Server
   ( serve9p,
@@ -16,7 +17,6 @@ import Data.ByteString qualified
 import Data.ByteString.Builder qualified
 import Data.IORef qualified
 import Data.Int
-import Data.List (intercalate, intersperse)
 import Data.List.NonEmpty qualified
 import Data.Text qualified
 import Data.Text.Encoding qualified
@@ -26,6 +26,7 @@ import Network.Plan9Hask.Builder qualified
 import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.MapFsHandler qualified
 import Network.Plan9Hask.MinimalHandler qualified
+import Network.Plan9Hask.ShowHandler qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified
 import Network.Socket qualified
@@ -42,111 +43,6 @@ openServerSocket addr = Control.Exception.bracketOnError
 
     return sock
 
-showParser :: Network.Plan9Hask.HandlerParser.Plan9Callback Data.Text.Text
-showParser =
-  let buildText = Data.Text.concat . (intersperse " ")
-      handleTVersion tag mSize version =
-        buildText
-          [ "tVersion ",
-            (Data.Text.show $ tag),
-            " m ",
-            (Data.Text.show $ mSize),
-            " v ",
-            (Data.Text.show $ version)
-          ]
-      handleTAuth tag authFid username attachName =
-        buildText
-          [ "tAuth ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ authFid),
-            (Data.Text.show $ username),
-            (Data.Text.show $ attachName)
-          ]
-      handleTFlush tag oldTag =
-        buildText
-          [ "tFlush ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ oldTag)
-          ]
-      handleTAttach tag fid authFid username attachName =
-        buildText
-          [ "tAttach ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid),
-            (Data.Text.show $ authFid),
-            (Data.Text.show $ username),
-            (Data.Text.show $ attachName)
-          ]
-      handleTWalk tag fid newFid walkNameCount walkNames =
-        buildText
-          [ "tWalk ",
-            (Data.Text.show tag),
-            (Data.Text.show fid),
-            (Data.Text.show walkNameCount),
-            (Data.Text.show walkNames),
-            (Data.Text.show newFid)
-          ]
-      handleTOpen tag fid openMode =
-        buildText
-          [ "tOpen ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid),
-            (Data.Text.show $ openMode)
-          ]
-      handleTCreate tag fid fileName permissions mode =
-        buildText
-          [ "tCreate ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid),
-            (Data.Text.show $ fileName),
-            (Data.Text.show $ permissions),
-            (Data.Text.show $ mode)
-          ]
-      handleTRead tag fid offset readByteCount =
-        buildText
-          [ "tRead ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid),
-            (Data.Text.show $ offset),
-            (Data.Text.show $ readByteCount)
-          ]
-      handleTWrite tag fid offset writeByteCount writeData =
-        buildText
-          [ "tWrite ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid),
-            (Data.Text.show $ offset),
-            (Data.Text.show $ writeByteCount)
-          ]
-      handleTClunk tag fid =
-        buildText
-          [ "tClunk ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid)
-          ]
-      handleTRemove tag fid =
-        buildText
-          [ "tRemove ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid)
-          ]
-      handleTStat tag fid =
-        buildText
-          [ "tStat ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid)
-          ]
-      handleTWstat tag fid statByteCount stat =
-        buildText
-          [ "tWStat ",
-            (Data.Text.show $ tag),
-            (Data.Text.show $ fid),
-            (Data.Text.show $ statByteCount),
-            (Data.Text.show $ stat)
-          ]
-      handleParseError err = Data.Text.concat ["Parse error ", Data.Text.show $ err]
-   in Network.Plan9Hask.HandlerParser.Plan9Callback {..}
-
 data HandlerState
   = FreshParse
       { buffer :: Data.ByteString.ByteString
@@ -158,6 +54,7 @@ data HandlerState
 handler :: Network.Socket.Socket -> IO ()
 handler sock = runHandler
   where
+    showHandler = Network.Plan9Hask.ShowHandler.handler
     runHandler = do
       msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
       fidState <- Network.Plan9Hask.MapFsHandler.newHandlerState
@@ -170,6 +67,7 @@ handler sock = runHandler
       parseResult <- case handlerState of
         (FreshParse {..}) -> pure $ Network.Plan9Hask.Parser.runMsgParser $ buffer
         (PartialParse {..}) -> do
+          -- Using a small recv size to try to expose leftover handling errors
           msg <- Network.Socket.ByteString.recv socket 512
           -- partial seems to return a fail when msg is empty which is what we want
           pure $ partial msg
@@ -177,7 +75,7 @@ handler sock = runHandler
         (Data.Attoparsec.ByteString.Done remainder (size, msgBody)) -> do
           let parsedInt64 :: Int64 = fromIntegral size
           putStrLn $ "Success" ++ (show parsedInt64)
-          Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showParser msgBody
+          Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showHandler msgBody
           Network.Plan9Hask.HandlerParser.handleMsgBody plan9handler msgBody
           -- There could be more Done elements in the remainder.
           -- These should be consumed before the next `recv`

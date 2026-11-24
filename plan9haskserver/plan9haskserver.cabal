@@ -29,6 +29,7 @@ library
       Network.Plan9Hask.MapFsHandler
       Network.Plan9Hask.MinimalHandler
       Network.Plan9Hask.Server
+      Network.Plan9Hask.ShowHandler
   other-modules:
       Paths_plan9haskserver
   autogen-modules:
