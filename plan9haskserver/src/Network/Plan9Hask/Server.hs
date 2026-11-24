@@ -23,12 +23,13 @@ import Data.Text.Encoding qualified
 import Data.Text.IO qualified
 import Data.Word qualified
 import Network.Plan9Hask.Builder qualified
+import Network.Plan9Hask.Error qualified
 import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.MapFsHandler qualified
 import Network.Plan9Hask.MinimalHandler qualified
-import Network.Plan9Hask.ShowHandler qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified
+import Network.Plan9Hask.ShowHandler qualified
 import Network.Socket qualified
 import Network.Socket.ByteString qualified
 
@@ -51,6 +52,13 @@ data HandlerState
       { partial :: (Data.ByteString.ByteString -> Data.Attoparsec.ByteString.IResult Data.ByteString.ByteString (Int, Data.ByteString.ByteString))
       }
 
+logAndSwallowError :: IO (Maybe Network.Plan9Hask.Error.Error) -> IO ()
+logAndSwallowError action = do
+  result <- action
+  case result of
+    Just err -> Data.Text.IO.putStrLn $ Data.Text.concat ["Error", Data.Text.show err]
+    Nothing -> pure ()
+
 handler :: Network.Socket.Socket -> IO ()
 handler sock = runHandler
   where
@@ -58,7 +66,9 @@ handler sock = runHandler
     runHandler = do
       msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
       fidState <- Network.Plan9Hask.MapFsHandler.newHandlerState
-      _err <- Network.Plan9Hask.MapFsHandler.addFile fidState [] "hello.txt" (\qidPath -> Network.Plan9Hask.MapFsHandler.basicFileQidNode qidPath $ Data.Text.Encoding.encodeUtf8 "Hello World\n")
+      logAndSwallowError $ Network.Plan9Hask.MapFsHandler.addFile fidState [] "hello.txt" (Network.Plan9Hask.MapFsHandler.basicFileQidNode $ Data.Text.Encoding.encodeUtf8 "Hello World\n")
+      logAndSwallowError $ Network.Plan9Hask.MapFsHandler.addFile fidState [] "aTestDir" Network.Plan9Hask.MapFsHandler.basicDirQidNode
+      logAndSwallowError $ Network.Plan9Hask.MapFsHandler.addFile fidState ["aTestDir"] "aTestFile.txt" (Network.Plan9Hask.MapFsHandler.basicFileQidNode $ Data.Text.Encoding.encodeUtf8 "My test File\n")
       mapHandler <- Network.Plan9Hask.MapFsHandler.newHandler fidState sock
       go sock mapHandler (FreshParse {buffer = Data.ByteString.empty})
     go :: Network.Socket.Socket -> Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()) -> HandlerState -> IO ()
@@ -95,7 +105,11 @@ spawnHandler socket = Control.Exception.bracketOnError
     return ()
 
 serverHints :: Network.Socket.AddrInfo
-serverHints = Network.Socket.defaultHints {Network.Socket.addrFlags = [Network.Socket.AI_PASSIVE], Network.Socket.addrSocketType = Network.Socket.Stream}
+serverHints =
+  Network.Socket.defaultHints
+    { Network.Socket.addrFlags = [Network.Socket.AI_PASSIVE],
+      Network.Socket.addrSocketType = Network.Socket.Stream
+    }
 
 serverThread :: IO ()
 serverThread = do

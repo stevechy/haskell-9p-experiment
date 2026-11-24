@@ -50,7 +50,6 @@ data NodeStat = NodeStat
   { mode :: Msg.Permissions,
     atime :: Msg.EpochSeconds,
     mtime :: Msg.EpochSeconds,
-    fileName :: Data.Text.Text,
     uid :: Data.Text.Text,
     gid :: Data.Text.Text,
     muid :: Data.Text.Text,
@@ -88,6 +87,11 @@ qidNodeData currentHandler (dirNode@DirNode {}) = Data.ByteString.Builder.toLazy
 
 data HandlerState = HandlerState
   { fids :: Data.Map.Map Msg.Fid [FidState],
+    -- Using this representation for qid nodes allows
+    -- for bad representations including circular directory loops and orphan nodes.
+    -- It also allows hard links to be represented.
+    -- Allowing orphan nodes allows the node to persist after the file is removed while there are fids that have the node open.
+    -- See https://ericvh.github.io/9p-rfc/rfc9p2000.html#anchor31
     qidNodes :: Data.Map.Map Msg.QidPath QidNode,
     rootDirQidPath :: Msg.QidPath,
     nextQidPath :: Int64,
@@ -226,7 +230,6 @@ emptyRootDirNode qidPath =
           { mode = Msg.directoryPermission Msg.worldReadblePermission,
             atime = Msg.EpochSeconds $ 0,
             mtime = Msg.EpochSeconds $ 0,
-            fileName = "/",
             uid = "root",
             gid = "root",
             muid = "root",
@@ -326,15 +329,14 @@ addQidNodeToDir dirQid fileName childQidNode currentHandler =
        in Right updatedHandler
     (Just FileNode {}) -> Left NotADir
 
-basicFileQidNode :: Msg.QidPath -> Data.ByteString.ByteString -> QidNode
-basicFileQidNode qidPath fileData =
+basicFileQidNode :: Data.ByteString.ByteString -> Msg.QidPath -> QidNode
+basicFileQidNode fileData qidPath =
   FileNode
     { nodeStat =
         NodeStat
           { mode = Msg.worldReadblePermission,
             atime = Msg.EpochSeconds $ 0,
             mtime = Msg.EpochSeconds $ 0,
-            fileName = "/",
             uid = "root",
             gid = "root",
             muid = "root",
@@ -343,78 +345,98 @@ basicFileQidNode qidPath fileData =
       ..
     }
 
+basicDirQidNode :: Msg.QidPath -> QidNode
+basicDirQidNode qidPath =
+    DirNode {
+        dirEntries = Data.Map.empty,
+        nodeStat =
+            NodeStat
+              { mode = Msg.directoryPermission Msg.worldReadblePermission,
+                atime = Msg.EpochSeconds $ 0,
+                mtime = Msg.EpochSeconds $ 0,
+                uid = "root",
+                gid = "root",
+                muid = "root",
+                qidVersion = [1, 0, 0, 0]
+              },
+        ..
+    }
+
 -- Data.IORef.IORef (HandlerState) cannot be reused by multiple connections
 -- Each connection needs to have its own id-space for fids
 -- fid{1} for connectionA and fid{1} for connectionB are not the same
 -- Reuse can happen once per-connection id spaces are implemented
-newHandlerState :: IO(Data.IORef.IORef (HandlerState))
+newHandlerState :: IO (Data.IORef.IORef (HandlerState))
 newHandlerState = do
-    fidState <-
-      Data.IORef.newIORef $
-        HandlerState
-          { fids = Data.Map.empty,
-            qidNodes = Data.Map.empty,
-            rootDirQidPath = int64ToQidPath 0,
-            nextQidPath = 1,
-            maxMsgSize = 512
-          }
-    newRootQidPath <- allocateQidPath fidState
-    Data.IORef.atomicModifyIORef'
-      fidState
-      ( \currentHandler ->
-          let updatedHandler = insertQidNode (emptyRootDirNode newRootQidPath) currentHandler
-              updatedRootHandler = updatedHandler {rootDirQidPath = newRootQidPath}
-           in (updatedRootHandler, ())
-      )
-    return fidState
+  fidState <-
+    Data.IORef.newIORef $
+      HandlerState
+        { fids = Data.Map.empty,
+          qidNodes = Data.Map.empty,
+          rootDirQidPath = int64ToQidPath 0,
+          nextQidPath = 1,
+          maxMsgSize = 512
+        }
+  newRootQidPath <- allocateQidPath fidState
+  Data.IORef.atomicModifyIORef'
+    fidState
+    ( \currentHandler ->
+        let updatedHandler = insertQidNode (emptyRootDirNode newRootQidPath) currentHandler
+            updatedRootHandler = updatedHandler {rootDirQidPath = newRootQidPath}
+         in (updatedRootHandler, ())
+    )
+  return fidState
 
 addFile :: Data.IORef.IORef (HandlerState) -> [Data.Text.Text] -> Data.Text.Text -> (Msg.QidPath -> QidNode) -> IO (Maybe (Error))
 addFile handlerStateRef walkNames fileName nodeBuilder = do
-    currentHandler <- Data.IORef.readIORef handlerStateRef
-    let resolvedWalk = resolve currentHandler [] walkNames
-    case resolvedWalk of
-        Left (err, _) -> pure $ Just err
-        Right walkQids -> do
-            allocateAndAddQid handlerStateRef (walkedQidPathEndQid currentHandler walkQids).qidPath fileName nodeBuilder
+  currentHandler <- Data.IORef.readIORef handlerStateRef
+  let resolvedWalk = resolve currentHandler [] walkNames
+  case resolvedWalk of
+    Left (err, _) -> pure $ Just err
+    Right walkQids -> do
+      allocateAndAddQid handlerStateRef (walkedQidPathEndQid currentHandler walkQids).qidPath fileName nodeBuilder
 
-allocateAndAddQid:: Data.IORef.IORef (HandlerState) -> Msg.QidPath -> Data.Text.Text -> (Msg.QidPath -> QidNode) -> IO(Maybe (Error))
+allocateAndAddQid :: Data.IORef.IORef (HandlerState) -> Msg.QidPath -> Data.Text.Text -> (Msg.QidPath -> QidNode) -> IO (Maybe (Error))
 allocateAndAddQid fidStateRef dirQidPath fileName nodeBuilder = do
-    newHelloWorldQidPath <- allocateQidPath fidStateRef
-    _err <-
-      Data.IORef.atomicModifyIORef'
-        fidStateRef
-        ( \currentHandler ->
-            let newQidNode = nodeBuilder newHelloWorldQidPath
-                resultHandler = addQidNodeToDir dirQidPath fileName newQidNode currentHandler
-             in case resultHandler of
-                  (Left err) -> (currentHandler, Just err)
-                  (Right updatedHandler) -> (updatedHandler, Nothing)
-        )
-    return _err
+  newHelloWorldQidPath <- allocateQidPath fidStateRef
+  _err <-
+    Data.IORef.atomicModifyIORef'
+      fidStateRef
+      ( \currentHandler ->
+          let newQidNode = nodeBuilder newHelloWorldQidPath
+              resultHandler = addQidNodeToDir dirQidPath fileName newQidNode currentHandler
+           in case resultHandler of
+                (Left err) -> (currentHandler, Just err)
+                (Right updatedHandler) -> (updatedHandler, Nothing)
+      )
+  return _err
 
 newHandler :: Data.IORef.IORef (HandlerState) -> Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()))
 newHandler fidState sock = do
   let defaultIoUnitByteCount = Msg.ByteCount $ 4096
       sendResponse bStrBuilder = Network.Socket.ByteString.Lazy.sendAll sock (Data.ByteString.Builder.toLazyByteString bStrBuilder)
-      sendError tag errorText = do
-        Data.Text.IO.putStrLn $ Data.Text.concat ["Sending error", Data.Text.show tag, Data.Text.show errorText]
-        sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag errorText
+      sendError :: (Show a) => Msg.Tag -> a -> IO ()
+      sendError tag err = do
+        Data.Text.IO.putStrLn $ Data.Text.concat ["Sending error", Data.Text.show tag, Data.Text.show err]
+        sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
       handleTVersion tag mSize version = do
         let !msgSize = (min mSize 8192)
         Data.IORef.atomicModifyIORef' fidState (\currentHandler -> (currentHandler {maxMsgSize = fromIntegral msgSize}, ())) -- Possible overflow
         sendResponse $ Network.Plan9Hask.Builder.rVersionMsgBuilder tag msgSize
-      handleTAuth tag authFid username attachName =
+      handleTAuth tag authFid username attachName = do
         Data.Text.IO.putStrLn $
           Data.Text.concat
             [ "tAuth ",
               (Data.Text.pack $ show tag)
             ]
-      handleTFlush tag oldTag =
+        sendError tag NotImplemented
+      handleTFlush tag oldTag = do
         Data.Text.IO.putStrLn $
           Data.Text.concat
             [ "tFlush ",
               (Data.Text.pack $ show tag)
             ]
+        sendError tag NotImplemented
       handleTAttach tag fid authFid username attachName = do
         attachResult <- attachFid fidState fid
         readFidState <- Data.IORef.readIORef fidState
@@ -447,27 +469,33 @@ newHandler fidState sock = do
                 sendResponse $ Network.Plan9Hask.Builder.rOpenMsgBuilder tag (qidNodeQid qidNode) defaultIoUnitByteCount
               Nothing -> sendError tag $ "Unexpected fid state "
           (Right _) -> sendError tag $ "Unexpected fid state"
-      handleTCreate tag fid fileName permissions mode = Data.Text.IO.putStrLn $ Data.Text.concat ["tCreate"]
+      handleTCreate tag fid fileName permissions mode = do
+        Data.Text.IO.putStrLn $ Data.Text.concat ["tCreate"]
+        sendError tag $ Data.Text.show NotImplemented
       handleTRead :: Msg.Tag -> Msg.Fid -> Msg.Offset -> Msg.ByteCount -> IO ()
       handleTRead tag fid offset readByteCount = do
         readOkResult <- readFid fidState fid
         case readOkResult of
-          (Left err) -> sendError tag $ Data.Text.show err
+          (Left err) -> sendError tag err
           (Right openFid@OpenFid {cachedQidData = Just qidData}) -> do
-            Data.Text.IO.putStrLn $ Data.Text.concat ["Read", Data.Text.show $ Data.ByteString.Lazy.length qidData , Data.Text.show qidData]
+            Data.Text.IO.putStrLn $ Data.Text.concat ["Read", Data.Text.show $ Data.ByteString.Lazy.length qidData, Data.Text.show qidData]
             Data.Text.IO.putStrLn $ Data.Text.concat ["ReadBytes", Data.Text.show readBytes]
             sendResponse $ Network.Plan9Hask.Builder.rReadMsgBuilder tag readBytes -- root dir read
             where
               readBytes = Data.ByteString.Lazy.toStrict $ Data.ByteString.Lazy.take (fromIntegral readByteCount.getByteCount) $ Data.ByteString.Lazy.drop (fromIntegral offset.getOffset) qidData -- possible overflow
-          (Right openFid@OpenFid {cachedQidData = Nothing}) -> sendError tag $ Data.Text.show NoPathEntry
-          (Right _) -> sendError tag $ Data.Text.show FidUnexpectedReadError -- root dir read
-      handleTWrite tag fid offset writeByteCount writeData = Data.Text.IO.putStrLn $ Data.Text.concat ["tWrite"]
+          (Right openFid@OpenFid {cachedQidData = Nothing}) -> sendError tag NoPathEntry
+          (Right _) -> sendError tag FidUnexpectedReadError -- root dir read
+      handleTWrite tag fid offset writeByteCount writeData = do
+        Data.Text.IO.putStrLn $ Data.Text.concat ["tWrite"]
+        sendError tag NotImplemented
       handleTClunk tag fid = do
         clunkResult <- clunkFid fidState fid
         case clunkResult of
-          (Left err) -> sendError tag $ Data.Text.show err
+          (Left err) -> sendError tag err
           (Right _) -> sendResponse $ Network.Plan9Hask.Builder.rClunkMsgBuilder tag
-      handleTRemove tag fid = Data.Text.IO.putStrLn $ Data.Text.concat ["tRemove"]
+      handleTRemove tag fid = do
+        Data.Text.IO.putStrLn $ Data.Text.concat ["tRemove"]
+        sendError tag NotImplemented
       handleTStat tag fid = do
         readFidState <- Data.IORef.readIORef fidState
         case Data.Map.lookup fid readFidState.fids of
@@ -478,9 +506,11 @@ newHandler fidState sock = do
                     let stat = (qidNodeStatMsg readFidState walkedQidPath qidNode)
                     Data.Text.IO.putStrLn $ Data.Text.show stat
                     sendResponse $ Network.Plan9Hask.Builder.rStatMsgBuilder tag stat
-                  Nothing -> sendError tag $ Data.Text.show NoPathEntry
-          _ -> sendError tag $ Data.Text.show FidNotAttached
-      handleTWstat tag fid statByteCount stat = Data.Text.IO.putStrLn $ Data.Text.concat ["tWStat"]
+                  Nothing -> sendError tag NoPathEntry
+          _ -> sendError tag FidNotAttached
+      handleTWstat tag fid statByteCount stat = do
+        Data.Text.IO.putStrLn $ Data.Text.concat ["tWStat"]
+        sendError tag NotImplemented
       handleParseError err = Data.Text.IO.putStrLn $ Data.Text.concat ["Parse error ", Data.Text.pack $ show err]
       callback = Network.Plan9Hask.HandlerParser.Plan9Callback {..}
   return callback
