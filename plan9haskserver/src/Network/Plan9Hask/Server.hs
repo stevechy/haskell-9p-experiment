@@ -16,19 +16,20 @@ import Data.ByteString qualified
 import Data.ByteString.Builder qualified
 import Data.IORef qualified
 import Data.Int
+import Data.List (intercalate, intersperse)
 import Data.List.NonEmpty qualified
 import Data.Text qualified
+import Data.Text.Encoding qualified
 import Data.Text.IO qualified
 import Data.Word qualified
 import Network.Plan9Hask.Builder qualified
 import Network.Plan9Hask.HandlerParser qualified
-import Network.Plan9Hask.MinimalHandler qualified
 import Network.Plan9Hask.MapFsHandler qualified
+import Network.Plan9Hask.MinimalHandler qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified
 import Network.Socket qualified
 import Network.Socket.ByteString qualified
-import Data.List (intercalate, intersperse)
 
 openServerSocket :: Network.Socket.AddrInfo -> IO (Network.Socket.Socket)
 openServerSocket addr = Control.Exception.bracketOnError
@@ -43,8 +44,7 @@ openServerSocket addr = Control.Exception.bracketOnError
 
 showParser :: Network.Plan9Hask.HandlerParser.Plan9Callback Data.Text.Text
 showParser =
-  let
-      buildText = Data.Text.concat . (intersperse " ")
+  let buildText = Data.Text.concat . (intersperse " ")
       handleTVersion tag mSize version =
         buildText
           [ "tVersion ",
@@ -160,16 +160,19 @@ handler sock = runHandler
   where
     runHandler = do
       msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
-      mapHandler <- Network.Plan9Hask.MapFsHandler.newHandler sock
+      fidState <- Network.Plan9Hask.MapFsHandler.newHandlerState
+      _err <- Network.Plan9Hask.MapFsHandler.addFile fidState [] "hello.txt" (\qidPath -> Network.Plan9Hask.MapFsHandler.basicFileQidNode qidPath $ Data.Text.Encoding.encodeUtf8 "Hello World\n")
+      mapHandler <- Network.Plan9Hask.MapFsHandler.newHandler fidState sock
       go sock mapHandler (FreshParse {buffer = Data.ByteString.empty})
     go :: Network.Socket.Socket -> Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()) -> HandlerState -> IO ()
     go socket plan9handler handlerState = do
       putStrLn "Handling"
       parseResult <- case handlerState of
-            (FreshParse {..}) -> pure $ Network.Plan9Hask.Parser.runMsgParser $ buffer
-            (PartialParse {..}) -> do
-                msg <- Network.Socket.ByteString.recv socket 512
-                pure $ partial msg
+        (FreshParse {..}) -> pure $ Network.Plan9Hask.Parser.runMsgParser $ buffer
+        (PartialParse {..}) -> do
+          msg <- Network.Socket.ByteString.recv socket 512
+          -- partial seems to return a fail when msg is empty which is what we want
+          pure $ partial msg
       case parseResult of
         (Data.Attoparsec.ByteString.Done remainder (size, msgBody)) -> do
           let parsedInt64 :: Int64 = fromIntegral size

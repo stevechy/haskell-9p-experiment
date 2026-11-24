@@ -145,7 +145,7 @@ walkFid fidState fid walkNames newFid = do
                 where
                   attachedFid = AttachedFid {walkedQidPath = currentFid.walkedQidPath ++ paths}
               Left (err, partialWalkPath) -> (currentHandler, Left (err, partialWalkPath))
-          -- 9pfuse seems to reuse fids that have been walked but not opened
+          -- 9pfuse seems to reuse fids that have been walked but not opened as newFid
           (Just fidList) | (any validWalkNewFid fidList) -> (currentHandler, Left (FidInUseWithFid newFid, []))
           (result) ->
             case resolve currentHandler currentFid.walkedQidPath walkNames of
@@ -343,43 +343,64 @@ basicFileQidNode qidPath fileData =
       ..
     }
 
-newHandler :: Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()))
-newHandler sock = do
-  fidState <-
-    Data.IORef.newIORef $
-      HandlerState
-        { fids = Data.Map.empty,
-          qidNodes = Data.Map.empty,
-          rootDirQidPath = int64ToQidPath 0,
-          nextQidPath = 1,
-          maxMsgSize = 512
-        }
-  newRootQidPath <- allocateQidPath fidState
-  Data.IORef.atomicModifyIORef'
-    fidState
-    ( \currentHandler ->
-        let updatedHandler = insertQidNode (emptyRootDirNode newRootQidPath) currentHandler
-            updatedRootHandler = updatedHandler {rootDirQidPath = newRootQidPath}
-         in (updatedRootHandler, ())
-    )
-  newHelloWorldQidPath <- allocateQidPath fidState
-  _err <-
+-- Data.IORef.IORef (HandlerState) cannot be reused by multiple connections
+-- Each connection needs to have its own id-space for fids
+-- fid{1} for connectionA and fid{1} for connectionB are not the same
+-- Reuse can happen once per-connection id spaces are implemented
+newHandlerState :: IO(Data.IORef.IORef (HandlerState))
+newHandlerState = do
+    fidState <-
+      Data.IORef.newIORef $
+        HandlerState
+          { fids = Data.Map.empty,
+            qidNodes = Data.Map.empty,
+            rootDirQidPath = int64ToQidPath 0,
+            nextQidPath = 1,
+            maxMsgSize = 512
+          }
+    newRootQidPath <- allocateQidPath fidState
     Data.IORef.atomicModifyIORef'
       fidState
       ( \currentHandler ->
-          let helloQidNode = basicFileQidNode newHelloWorldQidPath $ Data.Text.Encoding.encodeUtf8 "Hello World\n"
-              resultHandler = addQidNodeToDir newRootQidPath "hello.txt" helloQidNode currentHandler
-           in case resultHandler of
-                (Left err) -> (currentHandler, Just err)
-                (Right updatedHandler) -> (updatedHandler, Nothing)
+          let updatedHandler = insertQidNode (emptyRootDirNode newRootQidPath) currentHandler
+              updatedRootHandler = updatedHandler {rootDirQidPath = newRootQidPath}
+           in (updatedRootHandler, ())
       )
+    return fidState
+
+addFile :: Data.IORef.IORef (HandlerState) -> [Data.Text.Text] -> Data.Text.Text -> (Msg.QidPath -> QidNode) -> IO (Maybe (Error))
+addFile handlerStateRef walkNames fileName nodeBuilder = do
+    currentHandler <- Data.IORef.readIORef handlerStateRef
+    let resolvedWalk = resolve currentHandler [] walkNames
+    case resolvedWalk of
+        Left (err, _) -> pure $ Just err
+        Right walkQids -> do
+            allocateAndAddQid handlerStateRef (walkedQidPathEndQid currentHandler walkQids).qidPath fileName nodeBuilder
+
+allocateAndAddQid:: Data.IORef.IORef (HandlerState) -> Msg.QidPath -> Data.Text.Text -> (Msg.QidPath -> QidNode) -> IO(Maybe (Error))
+allocateAndAddQid fidStateRef dirQidPath fileName nodeBuilder = do
+    newHelloWorldQidPath <- allocateQidPath fidStateRef
+    _err <-
+      Data.IORef.atomicModifyIORef'
+        fidStateRef
+        ( \currentHandler ->
+            let newQidNode = nodeBuilder newHelloWorldQidPath
+                resultHandler = addQidNodeToDir dirQidPath fileName newQidNode currentHandler
+             in case resultHandler of
+                  (Left err) -> (currentHandler, Just err)
+                  (Right updatedHandler) -> (updatedHandler, Nothing)
+        )
+    return _err
+
+newHandler :: Data.IORef.IORef (HandlerState) -> Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()))
+newHandler fidState sock = do
   let defaultIoUnitByteCount = Msg.ByteCount $ 4096
       sendResponse bStrBuilder = Network.Socket.ByteString.Lazy.sendAll sock (Data.ByteString.Builder.toLazyByteString bStrBuilder)
       sendError tag errorText = do
         Data.Text.IO.putStrLn $ Data.Text.concat ["Sending error", Data.Text.show tag, Data.Text.show errorText]
         sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag errorText
       handleTVersion tag mSize version = do
-        let msgSize = (min mSize 8192)
+        let !msgSize = (min mSize 8192)
         Data.IORef.atomicModifyIORef' fidState (\currentHandler -> (currentHandler {maxMsgSize = fromIntegral msgSize}, ())) -- Possible overflow
         sendResponse $ Network.Plan9Hask.Builder.rVersionMsgBuilder tag msgSize
       handleTAuth tag authFid username attachName =

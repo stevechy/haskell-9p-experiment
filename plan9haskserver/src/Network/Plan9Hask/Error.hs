@@ -11,6 +11,8 @@ data Error
   | FidNotAttached
   | FidNotOpen
   | FidUnexpectedReadError
+  | NotImplemented
   | NoPathEntry
   | NotADir
+  | IsADir
   deriving (Show, Eq)
