@@ -13,11 +13,12 @@ import Control.Exception qualified
 import Control.Monad qualified
 import Data.ByteString qualified
 import Data.ByteString.Builder qualified
+import Data.ByteString.Lazy qualified
 import Data.IORef qualified
 import Data.Int
-import Data.List.NonEmpty qualified
 import Data.Map qualified
 import Data.Text qualified
+import Data.Text.Encoding qualified
 import Data.Text.IO qualified
 import Data.Word qualified
 import Network.Plan9Hask.Builder qualified
@@ -34,7 +35,8 @@ data FidState
       }
   | OpenFid
       { walkedQidPath :: [WalkedQidPath],
-        mode :: Msg.OpenMode
+        mode :: Msg.OpenMode,
+        cachedQidData :: Maybe Data.ByteString.Lazy.ByteString
       }
   | ClunkedFid {}
 
@@ -71,11 +73,24 @@ qidNodeStat :: QidNode -> NodeStat
 qidNodeStat (FileNode {..}) = nodeStat
 qidNodeStat (DirNode {..}) = nodeStat
 
+qidNodeData :: HandlerState -> QidNode -> Data.ByteString.Lazy.ByteString
+qidNodeData _ (FileNode {..}) = Data.ByteString.Lazy.fromStrict fileData
+qidNodeData currentHandler (dirNode@DirNode {}) = Data.ByteString.Builder.toLazyByteString $ mconcat builders
+  where
+    nodeDataBuilder fileName qidPath qidNode =
+      Data.ByteString.Builder.byteString $
+        Network.Plan9Hask.Builder.statByteString $
+          qidNodeStatMsg currentHandler (WalkedQidPath {path = fileName, qidPath = qidPath}) qidNode
+    prependDirStat fileName qidPath statBuilderAcc = case Data.Map.lookup qidPath currentHandler.qidNodes of
+      (Just qidNode) -> (nodeDataBuilder fileName qidPath qidNode) : statBuilderAcc
+      Nothing -> statBuilderAcc
+    builders = Data.Map.foldrWithKey prependDirStat [] dirNode.dirEntries
+
 data HandlerState = HandlerState
   { fids :: Data.Map.Map Msg.Fid [FidState],
     qidNodes :: Data.Map.Map Msg.QidPath QidNode,
     rootDirQidPath :: Msg.QidPath,
-    lastQidPath :: Int64,
+    nextQidPath :: Int64,
     maxMsgSize :: Int
   }
 
@@ -84,29 +99,31 @@ fidInUse (AttachedFid {}) = True
 fidInUse (OpenFid {}) = True
 fidInUse (ClunkedFid {}) = False
 
+validWalkNewFid :: FidState -> Bool
+validWalkNewFid (AttachedFid {}) = False
+validWalkNewFid (OpenFid {}) = True
+validWalkNewFid (ClunkedFid {}) = False
+
 resolve :: HandlerState -> [WalkedQidPath] -> [Data.Text.Text] -> Either (Error, [WalkedQidPath]) [WalkedQidPath]
-resolve handlerState currentPath walkNames = go [] currentPath walkNames
+resolve handlerState currentPath walkNames = fmap reverse $ go [] (walkedQidPathEndQid handlerState currentPath).qidPath walkNames
   where
-    currentQidPath :: [WalkedQidPath] -> Msg.QidPath
-    currentQidPath (WalkedQidPath {..} : _) = qidPath
-    currentQidPath [] = handlerState.rootDirQidPath
-    go :: [WalkedQidPath] -> [WalkedQidPath] -> [Data.Text.Text] -> Either (Error, [WalkedQidPath]) [WalkedQidPath]
-    go walkResult currentWalkPath (walkName : walkNames) =
+    go :: [WalkedQidPath] -> Msg.QidPath -> [Data.Text.Text] -> Either (Error, [WalkedQidPath]) [WalkedQidPath]
+    go walkResult currentQidPath (walkName : walkNames) =
       do
-        qidNode <- maybe (Left (NoPathEntry, walkResult)) (Right) $ Data.Map.lookup (currentQidPath currentWalkPath) handlerState.qidNodes
+        qidNode <- maybe (Left (NoPathEntry, walkResult)) (Right) $ Data.Map.lookup currentQidPath handlerState.qidNodes
         walkQidPath <- case qidNode of
           (DirNode {..}) -> maybe (Left (NoPathEntry, walkResult)) (Right) $ Data.Map.lookup walkName dirEntries
           -- Implement ".."
           (_) -> Left (NoPathEntry, walkResult)
         let newWalkPath = WalkedQidPath {path = walkName, qidPath = walkQidPath}
-        go (newWalkPath : walkResult) (newWalkPath : currentWalkPath) walkNames
-    go walkResult _currentWalkPath [] = Right walkResult
+        go (newWalkPath : walkResult) walkQidPath walkNames
+    go walkResult _currentQidPath [] = Right walkResult
 
 attachFid :: Data.IORef.IORef HandlerState -> Msg.Fid -> IO (Either Error FidState)
 attachFid fidState fid = do
   Data.IORef.atomicModifyIORef' fidState $ \currentHandler ->
     case (Data.Map.lookup fid currentHandler.fids) of
-      (Just fidList) | (any fidInUse fidList) -> (currentHandler, Left FidInUse)
+      (Just fidList) | (any fidInUse fidList) -> (currentHandler, Left $ FidInUseWithFid fid)
       (result) ->
         ( currentHandler {fids = Data.Map.insert fid (attachedFid : fidList) currentHandler.fids},
           Right attachedFid
@@ -128,7 +145,8 @@ walkFid fidState fid walkNames newFid = do
                 where
                   attachedFid = AttachedFid {walkedQidPath = currentFid.walkedQidPath ++ paths}
               Left (err, partialWalkPath) -> (currentHandler, Left (err, partialWalkPath))
-          (Just fidList) | (any fidInUse fidList) -> (currentHandler, Left (FidInUse, []))
+          -- 9pfuse seems to reuse fids that have been walked but not opened
+          (Just fidList) | (any validWalkNewFid fidList) -> (currentHandler, Left (FidInUseWithFid newFid, []))
           (result) ->
             case resolve currentHandler currentFid.walkedQidPath walkNames of
               Right paths ->
@@ -152,7 +170,14 @@ openFid fidState fid openMode = do
           Right openedFid
         )
         where
-          openedFid = OpenFid {walkedQidPath = currentFid.walkedQidPath, mode = openMode}
+          qidPath = (walkedQidPathEndQid currentHandler currentFid.walkedQidPath).qidPath
+          qidNode = Data.Map.lookup qidPath currentHandler.qidNodes
+          openedFid =
+            OpenFid
+              { walkedQidPath = currentFid.walkedQidPath,
+                mode = openMode,
+                cachedQidData = fmap (qidNodeData currentHandler) qidNode
+              }
       (Just (OpenFid {} : _)) -> (currentHandler, Left FidAlreadyOpen)
       (Just (ClunkedFid {} : _)) -> (currentHandler, Left FidNotAttached)
       (Just []) -> (currentHandler, Left FidNotAttached)
@@ -192,24 +217,8 @@ clunkFid fidState fid = do
       (Just []) -> (currentHandler, Left FidNotAttached)
       (Nothing) -> (currentHandler, Left FidNotAttached)
 
-rootDirStat :: Msg.Qid -> Msg.Stat
-rootDirStat qid =
-  Msg.Stat
-    { statType = 0,
-      statDev = 0,
-      qid = qid,
-      mode = Msg.directoryPermission Msg.worldReadblePermission,
-      fileName = "/",
-      length = Msg.Offset $ 0,
-      atime = Msg.EpochSeconds $ 0,
-      mtime = Msg.EpochSeconds $ 0,
-      uid = "root",
-      gid = "root",
-      muid = "root"
-    }
-
-emptyRootDirNode :: QidNode
-emptyRootDirNode =
+emptyRootDirNode :: Msg.QidPath -> QidNode
+emptyRootDirNode qidPath =
   DirNode
     { dirEntries = Data.Map.empty,
       nodeStat =
@@ -223,32 +232,33 @@ emptyRootDirNode =
             muid = "root",
             qidVersion = [1, 0, 0, 0]
           },
-      qidPath = Msg.QidPath $ Data.ByteString.pack [7, 0, 0, 0, 0, 0, 0, 0]
+      qidPath = qidPath
     }
 
 qidNodeQidType :: QidNode -> Data.Word.Word8
 qidNodeQidType (FileNode {}) = Msg.fileQidType
 qidNodeQidType (DirNode {}) = Msg.dirQidType
 
-qidNodeStatMsg :: WalkedQidPath -> QidNode -> Msg.Stat
-qidNodeStatMsg walkedQidPath qidNode =
-  let nodeStat = qidNodeStat qidNode
+qidNodeStatMsg :: HandlerState -> WalkedQidPath -> QidNode -> Msg.Stat
+qidNodeStatMsg currentHandler walkedQidPath qidNode =
+  let currentNodeStat = qidNodeStat qidNode
       qid = qidNodeQid qidNode
+      readByteCount :: Int
       readByteCount = case qidNode of
         (FileNode {..}) -> Data.ByteString.length fileData
-        (DirNode {..}) -> Msg.statDevSize * (Data.Map.size dirEntries) -- Stat is vararg because of uid,gid,muid
+        (DirNode {}) -> 0 -- Directories have a conventional length of 0 https://ericvh.github.io/9p-rfc/rfc9p2000.html#anchor32
    in Msg.Stat
         { statType = 0,
           statDev = 0,
           qid = qid,
-          mode = nodeStat.mode,
+          mode = currentNodeStat.mode,
           length = Msg.Offset $ fromIntegral readByteCount,
           fileName = walkedQidPath.path,
-          atime = nodeStat.atime,
-          mtime = nodeStat.mtime,
-          uid = nodeStat.uid,
-          gid = nodeStat.gid,
-          muid = nodeStat.muid
+          atime = currentNodeStat.atime,
+          mtime = currentNodeStat.mtime,
+          uid = currentNodeStat.uid,
+          gid = currentNodeStat.gid,
+          muid = currentNodeStat.muid
         }
 
 qidNodeQid :: QidNode -> Msg.Qid
@@ -275,20 +285,99 @@ walkedQidPathEndQid :: HandlerState -> [WalkedQidPath] -> WalkedQidPath
 walkedQidPathEndQid handlerState [] = WalkedQidPath {path = "/", qidPath = handlerState.rootDirQidPath}
 walkedQidPathEndQid _ walkedQids = (last walkedQids)
 
+int64ToQidPath :: Int64 -> Msg.QidPath
+int64ToQidPath qidInt64 = Msg.QidPath $ Data.ByteString.Lazy.toStrict $ qidLazyBytes
+  where
+    qidLazyBytes = Data.ByteString.Builder.toLazyByteString $ Data.ByteString.Builder.int64LE qidInt64
+
+allocateQidPath :: Data.IORef.IORef (HandlerState) -> IO (Msg.QidPath)
+allocateQidPath handlerIORef = do
+  qidPath <-
+    Data.IORef.atomicModifyIORef'
+      handlerIORef
+      ( \currentHandler ->
+          let newQidPathInt64 = currentHandler.nextQidPath
+              newQidPathBytes = int64ToQidPath newQidPathInt64
+              !updatedNextQidPath = newQidPathInt64 + 1
+           in ( currentHandler
+                  { nextQidPath = updatedNextQidPath
+                  },
+                newQidPathBytes
+              )
+      )
+  return qidPath
+
+insertQidNode :: QidNode -> HandlerState -> HandlerState
+insertQidNode qidNode currentHandler =
+  let !updatedQidNodes = Data.Map.insert qidNode.qidPath qidNode currentHandler.qidNodes
+   in currentHandler
+        { qidNodes = updatedQidNodes
+        }
+
+addQidNodeToDir :: Msg.QidPath -> Data.Text.Text -> QidNode -> HandlerState -> Either Error HandlerState
+addQidNodeToDir dirQid fileName childQidNode currentHandler =
+  case Data.Map.lookup dirQid currentHandler.qidNodes of
+    (Nothing) -> Left NoPathEntry
+    (Just dirNode@DirNode {}) ->
+      let withChildNode = (insertQidNode childQidNode currentHandler)
+          !updatedDirEntries = Data.Map.insert fileName childQidNode.qidPath dirNode.dirEntries
+          !updatedDirNode = dirNode {dirEntries = updatedDirEntries}
+          updatedHandler = insertQidNode (updatedDirNode) withChildNode
+       in Right updatedHandler
+    (Just FileNode {}) -> Left NotADir
+
+basicFileQidNode :: Msg.QidPath -> Data.ByteString.ByteString -> QidNode
+basicFileQidNode qidPath fileData =
+  FileNode
+    { nodeStat =
+        NodeStat
+          { mode = Msg.worldReadblePermission,
+            atime = Msg.EpochSeconds $ 0,
+            mtime = Msg.EpochSeconds $ 0,
+            fileName = "/",
+            uid = "root",
+            gid = "root",
+            muid = "root",
+            qidVersion = [1, 0, 0, 0]
+          },
+      ..
+    }
+
 newHandler :: Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()))
 newHandler sock = do
-  let rootDirNode = emptyRootDirNode
   fidState <-
     Data.IORef.newIORef $
       HandlerState
         { fids = Data.Map.empty,
-          qidNodes = Data.Map.fromList [(rootDirNode.qidPath, rootDirNode)],
-          rootDirQidPath = rootDirNode.qidPath,
-          lastQidPath = 1,
+          qidNodes = Data.Map.empty,
+          rootDirQidPath = int64ToQidPath 0,
+          nextQidPath = 1,
           maxMsgSize = 512
         }
+  newRootQidPath <- allocateQidPath fidState
+  Data.IORef.atomicModifyIORef'
+    fidState
+    ( \currentHandler ->
+        let updatedHandler = insertQidNode (emptyRootDirNode newRootQidPath) currentHandler
+            updatedRootHandler = updatedHandler {rootDirQidPath = newRootQidPath}
+         in (updatedRootHandler, ())
+    )
+  newHelloWorldQidPath <- allocateQidPath fidState
+  _err <-
+    Data.IORef.atomicModifyIORef'
+      fidState
+      ( \currentHandler ->
+          let helloQidNode = basicFileQidNode newHelloWorldQidPath $ Data.Text.Encoding.encodeUtf8 "Hello World\n"
+              resultHandler = addQidNodeToDir newRootQidPath "hello.txt" helloQidNode currentHandler
+           in case resultHandler of
+                (Left err) -> (currentHandler, Just err)
+                (Right updatedHandler) -> (updatedHandler, Nothing)
+      )
   let defaultIoUnitByteCount = Msg.ByteCount $ 4096
       sendResponse bStrBuilder = Network.Socket.ByteString.Lazy.sendAll sock (Data.ByteString.Builder.toLazyByteString bStrBuilder)
+      sendError tag errorText = do
+        Data.Text.IO.putStrLn $ Data.Text.concat ["Sending error", Data.Text.show tag, Data.Text.show errorText]
+        sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag errorText
       handleTVersion tag mSize version = do
         let msgSize = (min mSize 8192)
         Data.IORef.atomicModifyIORef' fidState (\currentHandler -> (currentHandler {maxMsgSize = fromIntegral msgSize}, ())) -- Possible overflow
@@ -309,40 +398,53 @@ newHandler sock = do
         attachResult <- attachFid fidState fid
         readFidState <- Data.IORef.readIORef fidState
         case attachResult of
-          (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
+          (Left err) -> sendError tag $ Data.Text.show err
           (Right _) -> case Data.Map.lookup readFidState.rootDirQidPath readFidState.qidNodes of
             (Just qidNode) -> sendResponse $ Network.Plan9Hask.Builder.rAttachMsgBuilder tag $ qidNodeQid qidNode
-            (Nothing) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show Error.NoPathEntry
+            (Nothing) -> sendError tag $ Data.Text.show Error.NoPathEntry
       handleTWalk :: Msg.Tag -> Msg.Fid -> Msg.Fid -> Msg.ArrayElementCount -> [Data.Text.Text] -> IO ()
       handleTWalk tag fid newFid _walkNameCount walkNames = do
         walkResult <- walkFid fidState fid walkNames newFid
         readFidState <- Data.IORef.readIORef fidState
         case walkResult of
-          (Right attachedNewFid) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag []
-          (Left (err, [])) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
-          (Left (err, partialWalkPath)) -> sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag (walkedQidPathQids readFidState partialWalkPath)
+          (Right walkResult) -> do
+            Data.Text.IO.putStrLn $ Data.Text.show walkResult
+            sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag (walkedQidPathQids readFidState walkResult)
+          (Left (err, [])) -> sendError tag $ Data.Text.show err
+          (Left (err, partialWalkPath)) -> do
+            Data.Text.IO.putStrLn $ Data.Text.concat [Data.Text.show err, Data.Text.show walkResult]
+            sendResponse $ Network.Plan9Hask.Builder.rWalkMsgBuilder tag (walkedQidPathQids readFidState partialWalkPath)
       handleTOpen tag fid openMode = do
         openResult <- openFid fidState fid openMode
         readFidState <- Data.IORef.readIORef fidState
         case openResult of
-          (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
+          (Left err) -> sendError tag $ Data.Text.show err
           (Right openFid@OpenFid {}) ->
             case Data.Map.lookup (walkedQidPathEndQid readFidState openFid.walkedQidPath).qidPath readFidState.qidNodes of
-              (Just qidNode) -> sendResponse $ Network.Plan9Hask.Builder.rOpenMsgBuilder tag (qidNodeQid qidNode) defaultIoUnitByteCount
-              Nothing -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ "Unexpected fid state "
-          (Right _) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ "Unexpected fid state"
+              (Just qidNode) -> do
+                Data.Text.IO.putStrLn $ Data.Text.concat ["Cached Data:", (Data.Text.show openFid.cachedQidData)]
+                sendResponse $ Network.Plan9Hask.Builder.rOpenMsgBuilder tag (qidNodeQid qidNode) defaultIoUnitByteCount
+              Nothing -> sendError tag $ "Unexpected fid state "
+          (Right _) -> sendError tag $ "Unexpected fid state"
       handleTCreate tag fid fileName permissions mode = Data.Text.IO.putStrLn $ Data.Text.concat ["tCreate"]
+      handleTRead :: Msg.Tag -> Msg.Fid -> Msg.Offset -> Msg.ByteCount -> IO ()
       handleTRead tag fid offset readByteCount = do
         readOkResult <- readFid fidState fid
         case readOkResult of
-          (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
-          (Right openFid@OpenFid {}) | openFid.walkedQidPath == [] -> sendResponse $ Network.Plan9Hask.Builder.rReadMsgBuilder tag Data.ByteString.empty -- root dir read
-          (Right _) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show FidUnexpectedReadError -- root dir read
+          (Left err) -> sendError tag $ Data.Text.show err
+          (Right openFid@OpenFid {cachedQidData = Just qidData}) -> do
+            Data.Text.IO.putStrLn $ Data.Text.concat ["Read", Data.Text.show $ Data.ByteString.Lazy.length qidData , Data.Text.show qidData]
+            Data.Text.IO.putStrLn $ Data.Text.concat ["ReadBytes", Data.Text.show readBytes]
+            sendResponse $ Network.Plan9Hask.Builder.rReadMsgBuilder tag readBytes -- root dir read
+            where
+              readBytes = Data.ByteString.Lazy.toStrict $ Data.ByteString.Lazy.take (fromIntegral readByteCount.getByteCount) $ Data.ByteString.Lazy.drop (fromIntegral offset.getOffset) qidData -- possible overflow
+          (Right openFid@OpenFid {cachedQidData = Nothing}) -> sendError tag $ Data.Text.show NoPathEntry
+          (Right _) -> sendError tag $ Data.Text.show FidUnexpectedReadError -- root dir read
       handleTWrite tag fid offset writeByteCount writeData = Data.Text.IO.putStrLn $ Data.Text.concat ["tWrite"]
       handleTClunk tag fid = do
         clunkResult <- clunkFid fidState fid
         case clunkResult of
-          (Left err) -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show err
+          (Left err) -> sendError tag $ Data.Text.show err
           (Right _) -> sendResponse $ Network.Plan9Hask.Builder.rClunkMsgBuilder tag
       handleTRemove tag fid = Data.Text.IO.putStrLn $ Data.Text.concat ["tRemove"]
       handleTStat tag fid = do
@@ -351,9 +453,12 @@ newHandler sock = do
           Just (attachedFid@AttachedFid {} : _) ->
             let walkedQidPath = (walkedQidPathEndQid readFidState attachedFid.walkedQidPath)
              in case Data.Map.lookup walkedQidPath.qidPath readFidState.qidNodes of
-                  (Just qidNode) -> sendResponse $ Network.Plan9Hask.Builder.rStatMsgBuilder tag (qidNodeStatMsg walkedQidPath qidNode)
-                  Nothing -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show NoPathEntry
-          _ -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show FidNotAttached
+                  (Just qidNode) -> do
+                    let stat = (qidNodeStatMsg readFidState walkedQidPath qidNode)
+                    Data.Text.IO.putStrLn $ Data.Text.show stat
+                    sendResponse $ Network.Plan9Hask.Builder.rStatMsgBuilder tag stat
+                  Nothing -> sendError tag $ Data.Text.show NoPathEntry
+          _ -> sendError tag $ Data.Text.show FidNotAttached
       handleTWstat tag fid statByteCount stat = Data.Text.IO.putStrLn $ Data.Text.concat ["tWStat"]
       handleParseError err = Data.Text.IO.putStrLn $ Data.Text.concat ["Parse error ", Data.Text.pack $ show err]
       callback = Network.Plan9Hask.HandlerParser.Plan9Callback {..}

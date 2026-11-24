@@ -133,11 +133,13 @@ statByteString stat = Data.ByteString.toStrict $ Data.ByteString.Builder.toLazyB
         <> (Data.ByteString.Builder.byteString groupIdPlan9Str)
         <> (Data.ByteString.Builder.byteString modifierUserIdPlan9Str)
     size =
-      Msg.varArgByteCountSize
-        + Msg.statTypeSize
+      Msg.statTypeSize
         + Msg.statDevSize
         + Msg.qidSize
         + Msg.permissionsSize
+        + Msg.epochSecondsSize
+        + Msg.epochSecondsSize
+        + Msg.offsetSize
         + (Data.ByteString.length fileNamePlan9Str)
         + (Data.ByteString.length userIdPlan9Str)
         + (Data.ByteString.length groupIdPlan9Str)

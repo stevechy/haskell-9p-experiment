@@ -23,6 +23,7 @@ import Data.Word qualified
 import Network.Plan9Hask.Builder qualified
 import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.MinimalHandler qualified
+import Network.Plan9Hask.MapFsHandler qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified
 import Network.Socket qualified
@@ -159,26 +160,28 @@ handler sock = runHandler
   where
     runHandler = do
       msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
-      go sock msgHandler (FreshParse {buffer = Data.ByteString.empty})
+      mapHandler <- Network.Plan9Hask.MapFsHandler.newHandler sock
+      go sock mapHandler (FreshParse {buffer = Data.ByteString.empty})
     go :: Network.Socket.Socket -> Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()) -> HandlerState -> IO ()
-    go socket msgHandler handlerState = do
+    go socket plan9handler handlerState = do
       putStrLn "Handling"
-      msg <- Network.Socket.ByteString.recv socket 512
-      let parseResult = case handlerState of
-            (FreshParse {..}) -> Network.Plan9Hask.Parser.runMsgParser $ Data.ByteString.append buffer msg
-            (PartialParse {..}) -> partial msg
+      parseResult <- case handlerState of
+            (FreshParse {..}) -> pure $ Network.Plan9Hask.Parser.runMsgParser $ buffer
+            (PartialParse {..}) -> do
+                msg <- Network.Socket.ByteString.recv socket 512
+                pure $ partial msg
       case parseResult of
         (Data.Attoparsec.ByteString.Done remainder (size, msgBody)) -> do
           let parsedInt64 :: Int64 = fromIntegral size
           putStrLn $ "Success" ++ (show parsedInt64)
           Data.Text.IO.putStrLn $ Network.Plan9Hask.HandlerParser.handleMsgBody showParser msgBody
-          Network.Plan9Hask.HandlerParser.handleMsgBody msgHandler msgBody
+          Network.Plan9Hask.HandlerParser.handleMsgBody plan9handler msgBody
           -- There could be more Done elements in the remainder.
           -- These should be consumed before the next `recv`
-          go socket msgHandler (FreshParse {buffer = remainder})
+          go socket plan9handler (FreshParse {buffer = remainder})
         (Data.Attoparsec.ByteString.Partial cont) -> do
           putStrLn $ "Partial"
-          go socket msgHandler (PartialParse {partial = cont})
+          go socket plan9handler (PartialParse {partial = cont})
         (Data.Attoparsec.ByteString.Fail _ _ _) -> putStrLn "Fail"
 
 spawnHandler :: Network.Socket.Socket -> IO ()

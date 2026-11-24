@@ -101,10 +101,10 @@ executePermission :: Permissions
 executePermission = Permissions $ 1
 
 ownerPermission :: Permissions -> Permissions
-ownerPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` 16
+ownerPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` (2*3)
 
 groupPermission :: Permissions -> Permissions
-groupPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` 8
+groupPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` (3)
 
 othersPermission :: Permissions -> Permissions
 othersPermission perm = perm
