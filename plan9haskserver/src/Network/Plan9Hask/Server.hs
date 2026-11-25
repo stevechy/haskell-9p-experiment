@@ -14,20 +14,15 @@ import Control.Exception qualified
 import Control.Monad qualified
 import Data.Attoparsec.ByteString qualified
 import Data.ByteString qualified
-import Data.ByteString.Builder qualified
-import Data.IORef qualified
 import Data.Int
 import Data.List.NonEmpty qualified
 import Data.Text qualified
 import Data.Text.Encoding qualified
 import Data.Text.IO qualified
-import Data.Word qualified
-import Network.Plan9Hask.Builder qualified
 import Network.Plan9Hask.Error qualified
 import Network.Plan9Hask.HandlerParser qualified
 import Network.Plan9Hask.MapFsHandler qualified
 import Network.Plan9Hask.MinimalHandler qualified
-import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified
 import Network.Plan9Hask.ShowHandler qualified
 import Network.Socket qualified
@@ -64,14 +59,14 @@ handler sock = runHandler
   where
     showHandler = Network.Plan9Hask.ShowHandler.handler
     runHandler = do
-      msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
+      _msgHandler <- Network.Plan9Hask.MinimalHandler.newHandler sock
       fidState <- Network.Plan9Hask.MapFsHandler.newHandlerState
       logAndSwallowError $ Network.Plan9Hask.MapFsHandler.addFile fidState [] "hello.txt" (Network.Plan9Hask.MapFsHandler.basicFileQidNode $ Data.Text.Encoding.encodeUtf8 "Hello World\n")
       logAndSwallowError $ Network.Plan9Hask.MapFsHandler.addFile fidState [] "aTestDir" Network.Plan9Hask.MapFsHandler.basicDirQidNode
       logAndSwallowError $ Network.Plan9Hask.MapFsHandler.addFile fidState ["aTestDir"] "aTestFile.txt" (Network.Plan9Hask.MapFsHandler.basicFileQidNode $ Data.Text.Encoding.encodeUtf8 "My test File\n")
       mapHandler <- Network.Plan9Hask.MapFsHandler.newHandler fidState sock
       go sock mapHandler (FreshParse {buffer = Data.ByteString.empty})
-    go :: Network.Socket.Socket -> Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()) -> HandlerState -> IO ()
+    go :: Network.Socket.Socket -> Network.Plan9Hask.HandlerParser.RequestHandler (IO ()) -> HandlerState -> IO ()
     go socket plan9handler handlerState = do
       putStrLn "Handling"
       parseResult <- case handlerState of

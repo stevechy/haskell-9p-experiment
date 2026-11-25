@@ -411,7 +411,7 @@ allocateAndAddQid fidStateRef dirQidPath fileName nodeBuilder = do
       )
   return _err
 
-newHandler :: Data.IORef.IORef (HandlerState) -> Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()))
+newHandler :: Data.IORef.IORef (HandlerState) -> Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.RequestHandler (IO ()))
 newHandler fidState sock = do
   let defaultIoUnitByteCount = Msg.ByteCount $ 4096
       sendResponse bStrBuilder = Network.Socket.ByteString.Lazy.sendAll sock (Data.ByteString.Builder.toLazyByteString bStrBuilder)
@@ -512,5 +512,5 @@ newHandler fidState sock = do
         Data.Text.IO.putStrLn $ Data.Text.concat ["tWStat"]
         sendError tag NotImplemented
       handleParseError err = Data.Text.IO.putStrLn $ Data.Text.concat ["Parse error ", Data.Text.pack $ show err]
-      callback = Network.Plan9Hask.HandlerParser.Plan9Callback {..}
+      callback = Network.Plan9Hask.HandlerParser.RequestHandler {..}
   return callback

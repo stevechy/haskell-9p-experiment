@@ -4,29 +4,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
-module Network.Plan9Hask.ShowHandler where
+module Network.Plan9Hask.ShowHandler (handler) where
 
-import Control.Concurrent.Async qualified
-import Control.Exception qualified
-import Control.Monad qualified
-import Data.ByteString qualified
-import Data.ByteString.Builder qualified
-import Data.IORef qualified
-import Data.Int
-import Data.List.NonEmpty qualified
 import Data.List qualified
-import Data.Map qualified
 import Data.Text qualified
-import Data.Text.IO qualified
-import Data.Word qualified
-import Network.Plan9Hask.Builder qualified
-import Network.Plan9Hask.Error
 import Network.Plan9Hask.HandlerParser qualified
-import Network.Plan9Hask.Msg qualified as Msg
-import Network.Socket qualified
-import Network.Socket.ByteString.Lazy qualified
 
-handler :: Network.Plan9Hask.HandlerParser.Plan9Callback Data.Text.Text
+handler :: Network.Plan9Hask.HandlerParser.RequestHandler Data.Text.Text
 handler =
   let buildText = Data.Text.concat . (Data.List.intersperse " ")
       handleTVersion tag mSize version =
@@ -131,4 +115,4 @@ handler =
             (Data.Text.show $ stat)
           ]
       handleParseError err = Data.Text.concat ["Parse error ", Data.Text.show $ err]
-   in Network.Plan9Hask.HandlerParser.Plan9Callback {..}
+   in Network.Plan9Hask.HandlerParser.RequestHandler {..}

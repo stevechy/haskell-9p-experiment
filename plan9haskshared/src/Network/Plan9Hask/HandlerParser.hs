@@ -8,7 +8,7 @@ import Data.Word qualified
 import Network.Plan9Hask.Msg qualified as Msg
 import Network.Plan9Hask.Parser qualified as Parser
 
-data Plan9Callback a = Plan9Callback
+data RequestHandler a = RequestHandler
   { handleTVersion :: Msg.Tag -> Data.Word.Word32 -> Data.Text.Text -> a,
     handleTAuth :: Msg.Tag -> Msg.AuthFid -> Msg.Username -> Msg.AttachName -> a,
     handleTFlush :: Msg.Tag -> Msg.Tag -> a,
@@ -25,14 +25,14 @@ data Plan9Callback a = Plan9Callback
     handleParseError :: Parser.ParseError -> a
   }
 
-handleMsgBody :: Plan9Callback a -> Data.ByteString.ByteString -> a
+handleMsgBody :: RequestHandler a -> Data.ByteString.ByteString -> a
 handleMsgBody callbacks msgBytes
   | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize = callbacks.handleParseError Parser.OutOfBytes
   | msgType <- (Data.ByteString.index msgBytes 0),
     tag <- Parser.parseTag msgBytes =
       handleMsgType callbacks msgType tag msgBytes
 
-handleMsgType :: Plan9Callback a -> Data.Word.Word8 -> Msg.Tag -> Data.ByteString.ByteString -> a
+handleMsgType :: RequestHandler a -> Data.Word.Word8 -> Msg.Tag -> Data.ByteString.ByteString -> a
 handleMsgType callbacks msgType tag msgBytes
   | msgType == Msg.tVersion.getMsgType = tVersionCallback callbacks tag msgBytes
   | msgType == Msg.tAuth.getMsgType = tAuthCallback callbacks tag msgBytes
@@ -48,14 +48,14 @@ handleMsgType callbacks msgType tag msgBytes
   | msgType == Msg.tStat.getMsgType = fidOnlyCallback (callbacks.handleTStat) (callbacks.handleParseError) tag msgBytes
   | otherwise = callbacks.handleParseError Parser.UnknownMsgType
 
-tVersionCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tVersionCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tVersionCallback callbacks tag msgBytes
   | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 = callbacks.handleParseError Parser.OutOfBytes
   | otherwise = case Parser.parsePlan9Str $ Data.ByteString.drop (Msg.messageTypeAndTagSize + 4) msgBytes of
       Right versionStr -> callbacks.handleTVersion tag (Parser.convertLeWord32 msgBytes [3, 4, 5, 6]) versionStr
       Left err -> callbacks.handleParseError err
 
-tAuthCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tAuthCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tAuthCallback callbacks tag msgBytes
   | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 2 + 2 = callbacks.handleParseError Parser.OutOfBytes
   | otherwise =
@@ -69,12 +69,12 @@ tAuthCallback callbacks tag msgBytes
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
 
-tFlushCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tFlushCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tFlushCallback callbacks tag msgBytes
   | Data.ByteString.length msgBytes < 1 + 2 + 2 + 2 = callbacks.handleParseError Parser.OutOfBytes
   | otherwise = callbacks.handleTFlush tag (Msg.Tag $ Parser.convertLeWord16 msgBytes [3, 4])
 
-tAttachCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tAttachCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tAttachCallback callbacks tag msgBytes
   | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 4 + 2 + 2 = callbacks.handleParseError Parser.OutOfBytes
   | otherwise =
@@ -92,7 +92,7 @@ tAttachCallback callbacks tag msgBytes
 mapParsedElement :: (a -> b) -> Parser.ParseResult a -> Parser.ParseResult b
 mapParsedElement f result = result { Parser.parsedElement = f result.parsedElement }
 
-tOpenCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tOpenCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tOpenCallback callbacks tag msgBytes
     | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 1 = callbacks.handleParseError Parser.OutOfBytes
     | otherwise =
@@ -104,7 +104,7 @@ tOpenCallback callbacks tag msgBytes
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
 
-tCreateCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tCreateCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tCreateCallback callbacks tag msgBytes
     | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 2 + 4 + 1 = callbacks.handleParseError Parser.OutOfBytes
     | otherwise =
@@ -124,7 +124,7 @@ tCreateCallback callbacks tag msgBytes
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
 
-tWalkCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tWalkCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tWalkCallback callbacks tag msgBytes
     | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 4 + 2 = callbacks.handleParseError Parser.OutOfBytes
     | otherwise =
@@ -139,7 +139,7 @@ tWalkCallback callbacks tag msgBytes
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
 
-tReadCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tReadCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tReadCallback callbacks tag msgBytes
     | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 8 + 4 = callbacks.handleParseError Parser.OutOfBytes
     | otherwise =
@@ -152,7 +152,7 @@ tReadCallback callbacks tag msgBytes
             (Right value) -> value
             (Left err) -> callbacks.handleParseError err
 
-tWriteCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tWriteCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tWriteCallback callbacks tag msgBytes
     | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 8 + 4 = callbacks.handleParseError Parser.OutOfBytes
     | otherwise =
@@ -172,7 +172,7 @@ fidOnlyCallback callback errCallback tag msgBytes
     | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 = errCallback Parser.OutOfBytes
     | otherwise = callback tag (Msg.Fid $ Parser.convertLeWord32 msgBytes [3, 4, 5, 6])
 
-tWStatCallback :: Plan9Callback a -> Msg.Tag -> Data.ByteString.ByteString -> a
+tWStatCallback :: RequestHandler a -> Msg.Tag -> Data.ByteString.ByteString -> a
 tWStatCallback callbacks tag msgBytes
     | Data.ByteString.length msgBytes < Msg.messageTypeAndTagSize + 4 + 2 = callbacks.handleParseError Parser.OutOfBytes
     | otherwise =

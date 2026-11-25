@@ -154,7 +154,7 @@ rootDirStat qid = Msg.Stat {
     muid = "root"
 }
 
-newHandler :: Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.Plan9Callback (IO ()))
+newHandler :: Network.Socket.Socket -> IO (Network.Plan9Hask.HandlerParser.RequestHandler (IO ()))
 newHandler sock = do
   let rootDirQidPath :: [Data.Word.Word8]
       rootDirQidPath = [7, 0, 0, 0, 0, 0, 0, 0]
@@ -217,5 +217,5 @@ newHandler sock = do
             _ -> sendResponse $ Network.Plan9Hask.Builder.rErrorMsgBuilder tag $ Data.Text.show FidNotAttached
       handleTWstat tag fid statByteCount stat = Data.Text.IO.putStrLn $ Data.Text.concat ["tWStat"]
       handleParseError err = Data.Text.IO.putStrLn $ Data.Text.concat ["Parse error ", Data.Text.pack $ show err]
-      callback = Network.Plan9Hask.HandlerParser.Plan9Callback {..}
+      callback = Network.Plan9Hask.HandlerParser.RequestHandler {..}
   return callback

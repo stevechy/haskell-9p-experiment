@@ -4,73 +4,107 @@
 
 module Network.Plan9Hask.Msg where
 
-import Data.Text qualified
-import Data.Word qualified
 import Data.Bits qualified
 import Data.ByteString qualified
+import Data.Text qualified
+import Data.Word qualified
 
 newtype MessageType = MessageType {getMsgType :: Data.Word.Word8}
 
+tVersion :: MessageType
 tVersion = MessageType 100
 
+rVersion :: MessageType
 rVersion = MessageType 101
 
+tAuth :: MessageType
 tAuth = MessageType 102
 
+rAuth :: MessageType
 rAuth = MessageType 103
 
+tAttach :: MessageType
 tAttach = MessageType 104
 
+rAttach :: MessageType
 rAttach = MessageType 105
 
+tError :: MessageType
 tError = MessageType 106
 
+rError :: MessageType
 rError = MessageType 107
 
+tFlush :: MessageType
 tFlush = MessageType 108
 
+rFlush :: MessageType
 rFlush = MessageType 109
 
+tWalk :: MessageType
 tWalk = MessageType 110
 
+rWalk :: MessageType
 rWalk = MessageType 111
 
+tOpen :: MessageType
 tOpen = MessageType 112
 
+rOpen :: MessageType
 rOpen = MessageType 113
 
+tCreate :: MessageType
 tCreate = MessageType 114
 
+rCreate :: MessageType
 rCreate = MessageType 115
 
+tRead :: MessageType
 tRead = MessageType 116
 
+rRead :: MessageType
 rRead = MessageType 117
 
+tWrite :: MessageType
 tWrite = MessageType 118
 
+rWrite :: MessageType
 rWrite = MessageType 119
 
+tClunk :: MessageType
 tClunk = MessageType 120
 
+rClunk :: MessageType
 rClunk = MessageType 121
 
+tRemove :: MessageType
 tRemove = MessageType 122
 
+rRemove :: MessageType
 rRemove = MessageType 123
 
+tStat :: MessageType
 tStat = MessageType 124
 
+rStat :: MessageType
 rStat = MessageType 125
 
+tWstat :: MessageType
 tWstat = MessageType 126
 
+rWstat :: MessageType
 rWstat = MessageType 127
 
+tMax :: MessageType
 tMax = MessageType 128
 
+--
+-- 9p2000.u Messages
+--
+tOpenfd :: MessageType
 tOpenfd = MessageType 98
 
+rOpenfd :: MessageType
 rOpenfd = MessageType 99
 
 dirQidType :: Data.Word.Word8
@@ -101,7 +135,7 @@ executePermission :: Permissions
 executePermission = Permissions $ 1
 
 ownerPermission :: Permissions -> Permissions
-ownerPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` (2*3)
+ownerPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` (2 * 3)
 
 groupPermission :: Permissions -> Permissions
 groupPermission perm = Permissions $ perm.getPermissions `Data.Bits.shift` (3)
@@ -111,67 +145,78 @@ othersPermission perm = perm
 
 worldReadblePermission :: Permissions
 worldReadblePermission =
-    (ownerPermission readPermission) <>
-    (groupPermission readPermission) <>
-    (othersPermission readPermission)
+  (ownerPermission readPermission)
+    <> (groupPermission readPermission)
+    <> (othersPermission readPermission)
 
 directoryPermission :: Permissions -> Permissions
-directoryPermission perm =  dirPermissionMarker <> perm
+directoryPermission perm = dirPermissionMarker <> perm
 
-newtype Tag = Tag {getTag :: Data.Word.Word16} deriving Show
+newtype Tag = Tag {getTag :: Data.Word.Word16} deriving (Show)
 
 newtype Fid = Fid {getFid :: Data.Word.Word32} deriving (Show, Eq, Ord)
-newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving Show
+
+newtype AuthFid = AuthFid {getAuthFid :: Data.Word.Word32} deriving (Show)
 
 noAuthFid :: AuthFid
 noAuthFid = AuthFid $ Data.Bits.complement $ fromIntegral @Int @Data.Word.Word32 0
-newtype Username = Username {getUsername :: Data.Text.Text} deriving Show
-newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving Show
 
-newtype ArrayElementCount = ArrayElementCount { getArrayElementCount :: Data.Word.Word16 } deriving Show
+newtype Username = Username {getUsername :: Data.Text.Text} deriving (Show)
+
+newtype AttachName = AttachName {getAttachName :: Data.Text.Text} deriving (Show)
+
+newtype ArrayElementCount = ArrayElementCount {getArrayElementCount :: Data.Word.Word16} deriving (Show)
+
 arrayElementCountSize :: Int
 arrayElementCountSize = 2
 
-newtype ByteCount = ByteCount { getByteCount :: Data.Word.Word32 } deriving Show
+newtype ByteCount = ByteCount {getByteCount :: Data.Word.Word32} deriving (Show)
+
 byteCountSize :: Int
 byteCountSize = 4
 
-newtype VarArgByteCount = VarArgByteCount { getVarArgByteCount:: Data.Word.Word16 } deriving Show
+newtype VarArgByteCount = VarArgByteCount {getVarArgByteCount :: Data.Word.Word16} deriving (Show)
+
 varArgByteCountSize :: Int
 varArgByteCountSize = 2
 
-newtype EpochSeconds = EpochSeconds { getEpochSeconds :: Data.Word.Word32 } deriving (Show, Eq)
+newtype EpochSeconds = EpochSeconds {getEpochSeconds :: Data.Word.Word32} deriving (Show, Eq)
+
 epochSecondsSize :: Int
 epochSecondsSize = 4
 
-newtype Qid = Qid { getQid :: Data.ByteString.ByteString } deriving (Show, Ord, Eq)
+newtype Qid = Qid {getQid :: Data.ByteString.ByteString} deriving (Show, Ord, Eq)
+
 qidSize :: Int
 qidSize = 13
 
-newtype QidPath = QidPath { getQidPath :: Data.ByteString.ByteString } deriving (Show, Ord, Eq)
-
+newtype QidPath = QidPath {getQidPath :: Data.ByteString.ByteString} deriving (Show, Ord, Eq)
 
 qidPathFromQid :: Qid -> QidPath
-qidPathFromQid qid = QidPath $  Data.ByteString.take 8 $ Data.ByteString.drop 5 qid.getQid
+qidPathFromQid qid = QidPath $ Data.ByteString.take 8 $ Data.ByteString.drop 5 qid.getQid
 
-newtype OpenMode = OpenMode { getOpenMode :: Data.Word.Word8 } deriving Show
-newtype CreateMode = CreateMode { getCreateMode :: Data.Word.Word8 } deriving Show
-newtype Permissions = Permissions {getPermissions:: Data.Word.Word32 } deriving (Show, Eq)
+newtype OpenMode = OpenMode {getOpenMode :: Data.Word.Word8} deriving (Show)
+
+newtype CreateMode = CreateMode {getCreateMode :: Data.Word.Word8} deriving (Show)
+
+newtype Permissions = Permissions {getPermissions :: Data.Word.Word32} deriving (Show, Eq)
+
 permissionsSize :: Int
 permissionsSize = 4
 
 instance Semigroup Permissions where
-    (<>) = (\x y -> Permissions $ x.getPermissions Data.Bits..|. y.getPermissions)
+  (<>) = (\x y -> Permissions $ x.getPermissions Data.Bits..|. y.getPermissions)
 
 instance Monoid Permissions where
-    mempty = Permissions $ 0
+  mempty = Permissions $ 0
 
-newtype Offset = Offset { getOffset:: Data.Word.Word64 } deriving (Show, Eq)
+newtype Offset = Offset {getOffset :: Data.Word.Word64} deriving (Show, Eq)
+
 offsetSize :: Int
 offsetSize = 8
 
-data Stat = Stat {
-    statType :: Data.Word.Word16,
+data Stat = Stat
+  { statType :: Data.Word.Word16,
     statDev :: Data.Word.Word32,
     qid :: Qid,
     mode :: Permissions,
@@ -182,10 +227,12 @@ data Stat = Stat {
     uid :: Data.Text.Text,
     gid :: Data.Text.Text,
     muid :: Data.Text.Text
-} deriving (Show, Eq)
+  }
+  deriving (Show, Eq)
 
 statTypeSize :: Int
 statTypeSize = 2
+
 statDevSize :: Int
 statDevSize = 4
 
@@ -198,4 +245,9 @@ messageTagSize = 2
 messageTypeAndTagSize :: Int
 messageTypeAndTagSize = 1 + 2
 
-data Value = Tversion {tag :: Data.Word.Word16, mSize :: Data.Word.Word32, version :: Data.Text.Text} deriving (Show)
+data Value = Tversion
+  { tag :: Data.Word.Word16,
+    mSize :: Data.Word.Word32,
+    version :: Data.Text.Text
+  }
+  deriving (Show)
